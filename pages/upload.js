@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/router'
 import AuthGuard from '@/components/AuthGuard'
 import Layout from '@/components/Layout'
 import { runParser, isParserImplemented } from '@/lib/parsers'
@@ -41,6 +42,7 @@ function logKey(tipo, turno, momento) {
 }
 
 export default function UploadPage({ user }) {
+  const router = useRouter()
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10))
   const [uploadedKeys, setUploadedKeys] = useState(new Set())
   const [uploadedMeta, setUploadedMeta] = useState({})
@@ -84,6 +86,10 @@ export default function UploadPage({ user }) {
   }, [loadLogs])
 
   function handleItemClick(item) {
+    if (item.tipo === 'tarimas') {
+      router.push(`/tarimas?fecha=${fecha}&turno=${item.turno}&momento=${item.momento}`)
+      return
+    }
     if (!isParserImplemented(item.tipo)) {
       setError(`"${item.label}" aún no tiene parser implementado.`)
       return
