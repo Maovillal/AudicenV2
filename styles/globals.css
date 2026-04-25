@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-blanco font-body text-negro;
+  }
+}
+
+/* Scrollbar delgada */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1a6b2f #e8e4dc;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #e8e4dc;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #1a6b2f;
+  border-radius: 9999px;
+}
+
+button,
+a {
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, opacity 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.card {
+  @apply rounded-[12px] bg-white shadow-card;
+}
+
+.table-audicen {
+  @apply w-full min-w-[640px] overflow-hidden rounded-[12px] border border-gris-claro bg-white shadow-card;
+}
+
+.table-audicen thead th {
+  @apply bg-verde-botella px-3 py-3 text-left text-sm font-bold text-white;
+}
+
+.table-audicen tbody tr:nth-child(odd) {
+  @apply bg-white;
+}
+
+.table-audicen tbody tr:nth-child(even) {
+  @apply bg-blanco;
+}
+
+.table-audicen tbody tr:hover {
+  @apply bg-gris-claro;
+}
+
+.table-audicen td {
+  @apply border-t border-gris-claro px-3 py-2 text-sm;
+}
