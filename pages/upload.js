@@ -41,6 +41,19 @@ function logKey(tipo, turno, momento) {
   return `${tipo}|${turno}|${momento}`
 }
 
+const DATA_TABLE_MAP = {
+  inventario_liquido:  { table: 'inventario_liquido',  filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
+  inventario_envase:   { table: 'inventario_envase',   filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
+  conteo_fisico:       { table: 'conteo_fisico',       filters: (f)       => ({ fecha: f }) },
+  salidas_rutas:       { table: 'salidas_rutas',       filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
+  mb51_2000:           { table: 'movimientos_mb51',    filters: (f)       => ({ fecha: f, almacen: '2000' }) },
+  mb51_2010:           { table: 'movimientos_mb51',    filters: (f)       => ({ fecha: f, almacen: '2010' }) },
+  conciliacion_envase: { table: 'conciliacion_envase', filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
+  ingreso_envase:      { table: 'ingreso_envase',      filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
+  tiempos_carga:       { table: 'tiempos_carga',       filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
+  tarimas:             { table: 'tarimas_completas',   filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
+}
+
 export default function UploadPage({ user }) {
   const router = useRouter()
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10))
@@ -49,6 +62,8 @@ export default function UploadPage({ user }) {
   const [loadingLogs, setLoadingLogs] = useState(true)
   const [activeItem, setActiveItem] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const [deletingKey, setDeletingKey] = useState(null)
+  const [confirmKey, setConfirmKey] = useState(null)
   const [error, setError] = useState('')
   const fileInputRef = useRef(null)
 
@@ -97,6 +112,36 @@ export default function UploadPage({ user }) {
     setError('')
     setActiveItem(item)
     setTimeout(() => fileInputRef.current?.click(), 0)
+  }
+
+  async function handleDelete(item) {
+    const key = logKey(item.tipo, item.turno, item.momento)
+    if (confirmKey !== key) {
+      setConfirmKey(key)
+      return
+    }
+    setConfirmKey(null)
+    setDeletingKey(key)
+    try {
+      const mapping = DATA_TABLE_MAP[item.tipo]
+      if (mapping) {
+        const filters = mapping.filters(fecha, item.turno, item.momento)
+        let q = supabase.from(mapping.table).delete()
+        for (const [k, v] of Object.entries(filters)) q = q.eq(k, v)
+        await q
+      }
+      await supabase.from('upload_log')
+        .delete()
+        .eq('fecha', fecha)
+        .eq('tipo_archivo', item.tipo)
+        .eq('turno', item.turno)
+        .eq('momento', item.momento)
+      await loadLogs()
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setDeletingKey(null)
+    }
   }
 
   async function handleFileChange(e) {
@@ -218,6 +263,35 @@ export default function UploadPage({ user }) {
                                     <p className="text-xs text-gris-texto">Pendiente — haz clic para subir</p>
                                   )}
                                 </div>
+                                {isDone && (
+                                  confirmKey === key ? (
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); handleDelete(item) }}
+                                        disabled={deletingKey === key}
+                                        className="text-xs font-bold text-rojo hover:underline"
+                                      >
+                                        {deletingKey === key ? 'Eliminando…' : 'Confirmar'}
+                                      </button>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setConfirmKey(null) }}
+                                        className="text-xs text-gris-texto hover:underline"
+                                      >
+                                        Cancelar
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleDelete(item) }}
+                                      className="text-gris-texto hover:text-rojo transition-colors"
+                                      title="Eliminar registro"
+                                    >
+                                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                      </svg>
+                                    </button>
+                                  )
+                                )}
                                 {!isDone && implemented && !isActive && (
                                   <span className="text-xs font-semibold text-verde-fresco">Subir →</span>
                                 )}
