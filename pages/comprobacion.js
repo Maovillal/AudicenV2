@@ -91,6 +91,12 @@ export default function ComprobacionPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Para conteo físico usa la fila TOTALES si existe; si no, suma los individuales
+  const fisicoTotal = useCallback((rows) => {
+    const totRow = (rows || []).find((r) => String(r.sku ?? '').trim().toUpperCase() === 'TOTALES')
+    return totRow ? parseNumber(totRow.total_fisico_real) : sumField(rows || [], 'total_fisico_real')
+  }, [])
+
   const checks = useMemo(() => {
     if (!data) return []
 
@@ -99,8 +105,8 @@ export default function ComprobacionPage() {
       liqT1Ini:      sumField(data.liqT1Ini,      'stock_libre'),
       liqT1Cie:      sumField(data.liqT1Cie,      'stock_libre'),
       liqT3Cie:      sumField(data.liqT3Cie,      'stock_libre'),
-      fisicoAyer:    sumField(data.fisicoAyer,    'total_fisico_real'),
-      fisicoHoy:     sumField(data.fisicoHoy,     'total_fisico_real'),
+      fisicoAyer:    fisicoTotal(data.fisicoAyer),
+      fisicoHoy:     fisicoTotal(data.fisicoHoy),
       envT1Ini:      sumField(data.envT1Ini,      'stock_libre'),
       envT1Cie:      sumField(data.envT1Cie,      'stock_libre'),
       envT2Cie:      sumField(data.envT2Cie,      'stock_libre'),
@@ -227,7 +233,7 @@ export default function ComprobacionPage() {
         hasData: has(data.fisicoHoy) && has(data.liqT3Cie),
       }),
     ]
-  }, [data, ayer])
+  }, [data, ayer, fisicoTotal])
 
   const [selectedFormula, setSelectedFormula] = useState(null)
 
@@ -238,8 +244,9 @@ export default function ComprobacionPage() {
   // Detalle por fórmula: filas de conteo físico con desglose SKU
   const detalleRows = useMemo(() => {
     if (!data || selectedFormula === null) return []
-    if (selectedFormula === 1)  return [...(data.fisicoAyer || [])].sort((a, b) => parseNumber(b.total_fisico_real) - parseNumber(a.total_fisico_real))
-    if (selectedFormula === 11) return [...(data.fisicoHoy  || [])].sort((a, b) => parseNumber(b.total_fisico_real) - parseNumber(a.total_fisico_real))
+    const sinTotales = (rows) => rows.filter((r) => String(r.sku ?? '').trim().toUpperCase() !== 'TOTALES')
+    if (selectedFormula === 1)  return sinTotales(data.fisicoAyer || []).sort((a, b) => parseNumber(b.total_fisico_real) - parseNumber(a.total_fisico_real))
+    if (selectedFormula === 11) return sinTotales(data.fisicoHoy  || []).sort((a, b) => parseNumber(b.total_fisico_real) - parseNumber(a.total_fisico_real))
     return []
   }, [data, selectedFormula])
 
@@ -453,8 +460,8 @@ export default function ComprobacionPage() {
                         { label: 'Inv. Líquido T1 Inicio',        rows: data.liqT1Ini,      field: 'stock_libre',  filtros: `${fecha} · T1 · inicio` },
                         { label: 'Inv. Líquido T1 Cierre',        rows: data.liqT1Cie,      field: 'stock_libre',  filtros: `${fecha} · T1 · cierre` },
                         { label: 'Inv. Líquido T3 Cierre',        rows: data.liqT3Cie,      field: 'stock_libre',  filtros: `${fecha} · T3 · cierre` },
-                        { label: 'Conteo Físico Real (ayer)',      rows: data.fisicoAyer,    field: 'total_fisico_real', filtros: `${ayer} (U−AF)` },
-                        { label: 'Conteo Físico Real (hoy)',       rows: data.fisicoHoy,     field: 'total_fisico_real', filtros: `${fecha} (U−AF)` },
+                        { label: 'Conteo Físico Real (ayer)',      rows: data.fisicoAyer,    field: 'total_fisico_real', filtros: `${ayer} (fila TOTALES U−AF)`, useTotales: true },
+                        { label: 'Conteo Físico Real (hoy)',       rows: data.fisicoHoy,     field: 'total_fisico_real', filtros: `${fecha} (fila TOTALES U−AF)`, useTotales: true },
                         { label: 'Inv. Envase T1 Inicio',         rows: data.envT1Ini,      field: 'stock_libre',  filtros: `${fecha} · T1 · inicio` },
                         { label: 'Inv. Envase T1 Cierre',         rows: data.envT1Cie,      field: 'stock_libre',  filtros: `${fecha} · T1 · cierre` },
                         { label: 'Inv. Envase T2 Cierre',         rows: data.envT2Cie,      field: 'stock_libre',  filtros: `${fecha} · T2 · cierre` },
@@ -467,14 +474,19 @@ export default function ComprobacionPage() {
                         { label: 'MB51 2010',                     rows: data.mb51_2010,     field: 'cantidad',     filtros: `${fecha} · almacén 2010` },
                         { label: 'Ingresos de Envase',            rows: data.ingreso,       field: 'total',        filtros: `${fecha}` },
                         { label: 'Cargas a Salir (T3 Inicio)',    rows: data.cargas,        field: 'cantidad',     filtros: `${fecha} · T3 · inicio` },
-                      ].map(({ label, rows, field, filtros }) => (
-                        <tr key={label}>
-                          <td className="font-semibold">{label}</td>
-                          <td className="text-xs text-gris-texto">{filtros}</td>
-                          <td className="font-mono">{rows.length > 0 ? fmt(sumField(rows, field)) : <span className="text-gris-texto">—</span>}</td>
-                          <td className="text-gris-texto">{rows.length}</td>
-                        </tr>
-                      ))}
+                      ].map(({ label, rows, field, filtros, useTotales }) => {
+                        const val = rows.length > 0
+                          ? (useTotales ? fisicoTotal(rows) : sumField(rows, field))
+                          : null
+                        return (
+                          <tr key={label}>
+                            <td className="font-semibold">{label}</td>
+                            <td className="text-xs text-gris-texto">{filtros}</td>
+                            <td className="font-mono">{val !== null ? fmt(val) : <span className="text-gris-texto">—</span>}</td>
+                            <td className="text-gris-texto">{rows.length}</td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
