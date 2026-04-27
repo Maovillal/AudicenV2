@@ -10,8 +10,10 @@ const navItems = [
   { href: '/rutas', label: 'Rutas', icon: 'truck' },
   { href: '/merma', label: 'Merma', icon: 'trending' },
   { href: '/auditoria', label: 'Auditoría', icon: 'shield' },
+  { href: '/comprobacion', label: 'Comprobación', icon: 'check-formula' },
   { href: '/envase', label: 'Envase', icon: 'recycle' },
   { href: '/nivel-servicio', label: 'Nivel de Servicio', icon: 'clock' },
+  { href: '/tiempos-carga', label: 'Tiempos de Carga', icon: 'timer' },
   { href: '/upload', label: 'Cargar Datos', icon: 'upload' },
   { href: '/tarimas', label: 'Tarimas Completas', icon: 'layers' },
   { href: '/historial', label: 'Historial', icon: 'calendar' },
@@ -64,6 +66,12 @@ function NavIcon({ name }) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       )
+    case 'timer':
+      return (
+        <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2m6-2a10 10 0 11-20 0 10 10 0 0120 0z" />
+        </svg>
+      )
     case 'upload':
       return (
         <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -80,6 +88,12 @@ function NavIcon({ name }) {
       return (
         <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3" />
+        </svg>
+      )
+    case 'check-formula':
+      return (
+        <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       )
     case 'settings':

@@ -50,7 +50,7 @@ const DATA_TABLE_MAP = {
   mb51_2010:           { table: 'movimientos_mb51',    filters: (f)       => ({ fecha: f, almacen: '2010' }) },
   conciliacion_envase: { table: 'conciliacion_envase', filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
   ingreso_envase:      { table: 'ingreso_envase',      filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
-  tiempos_carga:       { table: 'tiempos_carga',       filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
+  tiempos_carga:       { table: 'tiempos_carga',       filters: (f)       => ({ fecha: f }) },
   tarimas:             { table: 'tarimas_completas',   filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
 }
 
