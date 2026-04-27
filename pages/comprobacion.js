@@ -427,7 +427,7 @@ export default function ComprobacionPage() {
                                             const diff = r.diferencia ?? (r.total_fisico_real != null && r.total_sistema != null ? r.total_fisico_real - r.total_sistema : null)
                                             return (
                                             <tr key={r.id ?? r.sku} className="hover:bg-red-50">
-                                              <td className="px-3 py-1.5 font-semibold">{r.sku}</td>
+                                              <td className="px-3 py-1.5 font-semibold">{r.sku_sap ?? r.sku}</td>
                                               <td className="px-3 py-1.5 text-gris-texto">{r.descripcion ?? '—'}</td>
                                               <td className="px-3 py-1.5 text-right font-mono">{fmt(r.total_fisico)}</td>
                                               <td className="px-3 py-1.5 text-right font-mono text-red-600">{fmt(r.merma_total)}</td>
