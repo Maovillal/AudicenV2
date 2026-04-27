@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useFechaGlobal } from '@/lib/useFecha'
 import {
   Bar,
   BarChart,
@@ -22,7 +23,7 @@ function minToHHMM(min) {
 }
 
 export default function TiemposCargaPage() {
-  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10))
+  const [fecha, setFecha] = useFechaGlobal()
   const [rows, setRows] = useState([])
   const [limite, setLimite] = useState(30)
   const [loading, setLoading] = useState(true)

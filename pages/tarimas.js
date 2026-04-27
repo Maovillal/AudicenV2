@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
+import { useFechaGlobal } from '@/lib/useFecha'
 import AuthGuard from '@/components/AuthGuard'
 import Layout from '@/components/Layout'
 import { supabase } from '@/lib/supabase'
@@ -21,7 +22,7 @@ function emptyRuta() {
 
 export default function TarimasPage({ user }) {
   const router = useRouter()
-  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10))
+  const [fecha, setFecha] = useFechaGlobal()
   const [turno, setTurno] = useState(3)
   const [momento, setMomento] = useState('inicio')
   const [rutas, setRutas] = useState([emptyRuta()])

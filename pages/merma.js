@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useFechaGlobal } from '@/lib/useFecha'
 import {
   Bar,
   BarChart,
@@ -15,7 +16,7 @@ import { parseNumber } from '@/lib/format'
 import { bebasNeue } from './_app'
 
 export default function MermaPage() {
-  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10))
+  const [fecha, setFecha] = useFechaGlobal()
   const [allRows, setAllRows] = useState([])
   const [loading, setLoading] = useState(true)
 

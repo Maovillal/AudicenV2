@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useFechaGlobal } from '@/lib/useFecha'
 import {
   Bar,
   BarChart,
@@ -16,7 +17,7 @@ import { parseNumber } from '@/lib/format'
 import { bebasNeue } from './_app'
 
 export default function NivelServicioPage() {
-  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10))
+  const [fecha, setFecha] = useFechaGlobal()
   const [rows, setRows] = useState([])
   const [objetivo, setObjetivo] = useState(60)
   const [loading, setLoading] = useState(true)

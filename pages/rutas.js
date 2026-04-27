@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { useFechaGlobal } from '@/lib/useFecha'
 import AuthGuard from '@/components/AuthGuard'
 import Layout from '@/components/Layout'
 import { supabase, fetchAllRows } from '../lib/supabase'
@@ -23,7 +24,7 @@ function topSkusForRoute(allRows, ruta) {
 }
 
 export default function RutasPage() {
-  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10))
+  const [fecha, setFecha] = useFechaGlobal()
   const [rows, setRows] = useState([])
   const [promedios, setPromedios] = useState([])
   const [expanded, setExpanded] = useState({})

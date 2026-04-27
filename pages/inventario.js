@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { subDays, format } from 'date-fns'
+import { useFechaGlobal } from '@/lib/useFecha'
 import AuthGuard from '@/components/AuthGuard'
 import Layout from '@/components/Layout'
 import { supabase, fetchAllRows } from '../lib/supabase'
@@ -33,7 +34,7 @@ function semaforoColor(dias, alerta, critico) {
 }
 
 export default function InventarioPage() {
-  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10))
+  const [fecha, setFecha] = useFechaGlobal()
   const [tab, setTab] = useState('liquido')
   const [search, setSearch] = useState('')
   const [liquido, setLiquido] = useState([])

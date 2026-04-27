@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
+import { useFechaGlobal } from '@/lib/useFecha'
 import AuthGuard from '@/components/AuthGuard'
 import Layout from '@/components/Layout'
 import { runParser, isParserImplemented } from '@/lib/parsers'
@@ -56,7 +57,7 @@ const DATA_TABLE_MAP = {
 
 export default function UploadPage({ user }) {
   const router = useRouter()
-  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10))
+  const [fecha, setFecha] = useFechaGlobal()
   const [uploadedKeys, setUploadedKeys] = useState(new Set())
   const [uploadedMeta, setUploadedMeta] = useState({})
   const [loadingLogs, setLoadingLogs] = useState(true)
