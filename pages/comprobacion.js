@@ -245,9 +245,13 @@ export default function ComprobacionPage() {
   // Detalle por fórmula: filas de conteo físico con desglose SKU
   const detalleRows = useMemo(() => {
     if (!data || selectedFormula === null) return []
-    const sinTotales = (rows) => rows.filter((r) => String(r.sku ?? '').trim().toUpperCase() !== 'TOTALES')
-    if (selectedFormula === 1)  return sinTotales(data.fisicoAyer || []).sort((a, b) => parseNumber(b.total_fisico_real) - parseNumber(a.total_fisico_real))
-    if (selectedFormula === 11) return sinTotales(data.fisicoHoy  || []).sort((a, b) => parseNumber(b.total_fisico_real) - parseNumber(a.total_fisico_real))
+    const filtrar = (rows) =>
+      rows
+        .filter((r) => String(r.sku ?? '').trim().toUpperCase() !== 'TOTALES')
+        .filter((r) => Math.abs(parseNumber(r.diferencia)) > 3)
+        .sort((a, b) => Math.abs(parseNumber(b.diferencia)) - Math.abs(parseNumber(a.diferencia)))
+    if (selectedFormula === 1)  return filtrar(data.fisicoAyer || [])
+    if (selectedFormula === 11) return filtrar(data.fisicoHoy  || [])
     return []
   }, [data, selectedFormula])
 
@@ -414,18 +418,27 @@ export default function ComprobacionPage() {
                                             <th className="px-3 py-2 text-right font-semibold">Total Físico (U)</th>
                                             <th className="px-3 py-2 text-right font-semibold">Merma Total (AF)</th>
                                             <th className="px-3 py-2 text-right font-semibold">Real en Piso (U−AF)</th>
+                                            <th className="px-3 py-2 text-right font-semibold">Sistema (SAP)</th>
+                                            <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y divide-red-100 bg-white">
-                                          {detalleRows.map((r) => (
+                                          {detalleRows.map((r) => {
+                                            const diff = r.diferencia ?? (r.total_fisico_real != null && r.total_sistema != null ? r.total_fisico_real - r.total_sistema : null)
+                                            return (
                                             <tr key={r.id ?? r.sku} className="hover:bg-red-50">
                                               <td className="px-3 py-1.5 font-semibold">{r.sku}</td>
                                               <td className="px-3 py-1.5 text-gris-texto">{r.descripcion ?? '—'}</td>
                                               <td className="px-3 py-1.5 text-right font-mono">{fmt(r.total_fisico)}</td>
                                               <td className="px-3 py-1.5 text-right font-mono text-red-600">{fmt(r.merma_total)}</td>
                                               <td className="px-3 py-1.5 text-right font-mono font-semibold">{fmt(r.total_fisico_real)}</td>
+                                              <td className="px-3 py-1.5 text-right font-mono text-gris-texto">{r.total_sistema != null ? fmt(r.total_sistema) : '—'}</td>
+                                              <td className={`px-3 py-1.5 text-right font-mono font-semibold ${diff == null ? '' : diff < 0 ? 'text-red-600' : diff > 0 ? 'text-amber-600' : 'text-green-700'}`}>
+                                                {diff != null ? fmt(diff) : '—'}
+                                              </td>
                                             </tr>
-                                          ))}
+                                            )
+                                          })}
                                         </tbody>
                                       </table>
                                     </div>
