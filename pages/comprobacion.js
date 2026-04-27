@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import AuthGuard from '@/components/AuthGuard'
 import Layout from '@/components/Layout'
 import { supabase, fetchAllRows } from '../lib/supabase'
@@ -229,9 +229,21 @@ export default function ComprobacionPage() {
     ]
   }, [data, ayer])
 
+  const [selectedFormula, setSelectedFormula] = useState(null)
+
   const anomalias = checks.filter((c) => c.status === 'anomalia')
   const sinDatos  = checks.filter((c) => c.status === 'sin_datos')
   const ok        = checks.filter((c) => c.status === 'ok')
+
+  // Detalle por fórmula: filas de conteo físico con desglose SKU
+  const detalleRows = useMemo(() => {
+    if (!data || selectedFormula === null) return []
+    if (selectedFormula === 1)  return [...(data.fisicoAyer || [])].sort((a, b) => parseNumber(b.total_fisico_real) - parseNumber(a.total_fisico_real))
+    if (selectedFormula === 11) return [...(data.fisicoHoy  || [])].sort((a, b) => parseNumber(b.total_fisico_real) - parseNumber(a.total_fisico_real))
+    return []
+  }, [data, selectedFormula])
+
+  const formulasConDetalle = new Set([1, 11])
 
   return (
     <AuthGuard>
@@ -309,66 +321,113 @@ export default function ComprobacionPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {checks.map((c) => (
-                        <tr
-                          key={c.id}
-                          className={
-                            c.status === 'anomalia'
-                              ? 'bg-red-50'
-                              : c.status === 'ok'
-                              ? 'bg-green-50'
-                              : ''
-                          }
-                        >
-                          <td className="font-bold text-gris-texto">{c.id}</td>
-                          <td>
-                            <p className="font-semibold text-verde-botella">{c.formula}</p>
-                            {c.status !== 'sin_datos' && (
-                              <p className="mt-0.5 text-xs text-gris-texto">
-                                {c.lhsLabel} vs {c.rhsLabel}
-                              </p>
+                      {checks.map((c) => {
+                        const isOpen = selectedFormula === c.id
+                        const clickable = c.status === 'anomalia' && formulasConDetalle.has(c.id)
+                        return (
+                          <Fragment key={c.id}>
+                            <tr
+                              key={c.id}
+                              onClick={() => clickable && setSelectedFormula(isOpen ? null : c.id)}
+                              className={[
+                                c.status === 'anomalia' ? 'bg-red-50' : c.status === 'ok' ? 'bg-green-50' : '',
+                                clickable ? 'cursor-pointer hover:bg-red-100' : '',
+                              ].join(' ')}
+                            >
+                              <td className="font-bold text-gris-texto">{c.id}</td>
+                              <td>
+                                <p className="font-semibold text-verde-botella">
+                                  {c.formula}
+                                  {clickable && (
+                                    <span className="ml-2 text-xs font-normal text-red-500">
+                                      {isOpen ? '▲ cerrar' : '▼ ver detalle'}
+                                    </span>
+                                  )}
+                                </p>
+                                {c.status !== 'sin_datos' && (
+                                  <p className="mt-0.5 text-xs text-gris-texto">
+                                    {c.lhsLabel} vs {c.rhsLabel}
+                                  </p>
+                                )}
+                              </td>
+                              <td className="font-mono">
+                                {c.lhsVal !== null ? fmt(c.lhsVal) : <span className="text-gris-texto">—</span>}
+                                {c.status !== 'sin_datos' && (
+                                  <p className="text-xs text-gris-texto">{c.lhsLabel}</p>
+                                )}
+                              </td>
+                              <td className="font-mono">
+                                {c.rhsVal !== null ? fmt(c.rhsVal) : <span className="text-gris-texto">—</span>}
+                                {c.status !== 'sin_datos' && (
+                                  <p className="text-xs text-gris-texto">{c.rhsLabel}</p>
+                                )}
+                              </td>
+                              <td className="font-mono font-semibold">
+                                {c.diff !== null ? (
+                                  <span className={c.diff !== 0 ? 'text-red-600' : 'text-green-700'}>
+                                    {fmt(c.diff)}
+                                  </span>
+                                ) : (
+                                  <span className="text-gris-texto">—</span>
+                                )}
+                              </td>
+                              <td>
+                                {c.status === 'ok' && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-800">
+                                    ✓ OK
+                                  </span>
+                                )}
+                                {c.status === 'anomalia' && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-800">
+                                    ⚠ Anomalía
+                                  </span>
+                                )}
+                                {c.status === 'sin_datos' && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">
+                                    Sin datos
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                            {isOpen && detalleRows.length > 0 && (
+                              <tr>
+                                <td colSpan={6} className="bg-red-50 p-0">
+                                  <div className="border-t border-red-200 px-4 py-3">
+                                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-red-700">
+                                      Desglose por SKU — Conteo Físico{' '}
+                                      {c.id === 1 ? ayer : fecha}
+                                    </p>
+                                    <div className="overflow-x-auto rounded-lg border border-red-200">
+                                      <table className="w-full text-xs">
+                                        <thead className="bg-red-100 text-red-800">
+                                          <tr>
+                                            <th className="px-3 py-2 text-left font-semibold">SKU</th>
+                                            <th className="px-3 py-2 text-left font-semibold">Descripción</th>
+                                            <th className="px-3 py-2 text-right font-semibold">Total Físico (U)</th>
+                                            <th className="px-3 py-2 text-right font-semibold">Merma Total (AF)</th>
+                                            <th className="px-3 py-2 text-right font-semibold">Real en Piso (U−AF)</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-red-100 bg-white">
+                                          {detalleRows.map((r) => (
+                                            <tr key={r.id ?? r.sku} className="hover:bg-red-50">
+                                              <td className="px-3 py-1.5 font-semibold">{r.sku}</td>
+                                              <td className="px-3 py-1.5 text-gris-texto">{r.descripcion ?? '—'}</td>
+                                              <td className="px-3 py-1.5 text-right font-mono">{fmt(r.total_fisico)}</td>
+                                              <td className="px-3 py-1.5 text-right font-mono text-red-600">{fmt(r.merma_total)}</td>
+                                              <td className="px-3 py-1.5 text-right font-mono font-semibold">{fmt(r.total_fisico_real)}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
                             )}
-                          </td>
-                          <td className="font-mono">
-                            {c.lhsVal !== null ? fmt(c.lhsVal) : <span className="text-gris-texto">—</span>}
-                            {c.status !== 'sin_datos' && (
-                              <p className="text-xs text-gris-texto">{c.lhsLabel}</p>
-                            )}
-                          </td>
-                          <td className="font-mono">
-                            {c.rhsVal !== null ? fmt(c.rhsVal) : <span className="text-gris-texto">—</span>}
-                            {c.status !== 'sin_datos' && (
-                              <p className="text-xs text-gris-texto">{c.rhsLabel}</p>
-                            )}
-                          </td>
-                          <td className="font-mono font-semibold">
-                            {c.diff !== null ? (
-                              <span className={c.diff !== 0 ? 'text-red-600' : 'text-green-700'}>
-                                {fmt(c.diff)}
-                              </span>
-                            ) : (
-                              <span className="text-gris-texto">—</span>
-                            )}
-                          </td>
-                          <td>
-                            {c.status === 'ok' && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-800">
-                                ✓ OK
-                              </span>
-                            )}
-                            {c.status === 'anomalia' && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-800">
-                                ⚠ Anomalía
-                              </span>
-                            )}
-                            {c.status === 'sin_datos' && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">
-                                Sin datos
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                          </Fragment>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
