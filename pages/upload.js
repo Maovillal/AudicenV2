@@ -62,6 +62,7 @@ export default function UploadPage({ user }) {
   const [uploadedMeta, setUploadedMeta] = useState({})
   const [loadingLogs, setLoadingLogs] = useState(true)
   const [activeItem, setActiveItem] = useState(null)
+  const activeItemRef = useRef(null)
   const [uploading, setUploading] = useState(false)
   const [deletingKey, setDeletingKey] = useState(null)
   const [confirmKey, setConfirmKey] = useState(null)
@@ -111,8 +112,9 @@ export default function UploadPage({ user }) {
       return
     }
     setError('')
+    activeItemRef.current = item
     setActiveItem(item)
-    setTimeout(() => fileInputRef.current?.click(), 0)
+    fileInputRef.current?.click()
   }
 
   async function handleDelete(item) {
@@ -147,12 +149,13 @@ export default function UploadPage({ user }) {
 
   async function handleFileChange(e) {
     const file = e.target.files?.[0]
-    if (!file || !activeItem) return
+    const currentItem = activeItemRef.current
+    if (!file || !currentItem) return
     e.target.value = ''
     setUploading(true)
     setError('')
     try {
-      const res = await runParser(activeItem.tipo, file, fecha, user, activeItem.turno, activeItem.momento)
+      const res = await runParser(currentItem.tipo, file, fecha, user, currentItem.turno, currentItem.momento)
       if (res.success) {
         await loadLogs()
       } else {
@@ -163,6 +166,7 @@ export default function UploadPage({ user }) {
     } finally {
       setUploading(false)
       setActiveItem(null)
+      activeItemRef.current = null
     }
   }
 
@@ -233,10 +237,10 @@ export default function UploadPage({ user }) {
                             return (
                               <li
                                 key={item.id}
-                                onClick={() => !isDone && !uploading && handleItemClick(item)}
+                                onClick={() => !uploading && handleItemClick(item)}
                                 className={[
                                   'flex items-center gap-3 px-4 py-3 transition-colors duration-150',
-                                  isDone ? 'bg-white' : implemented ? 'cursor-pointer hover:bg-verde-fresco/5' : 'opacity-60',
+                                  implemented ? 'cursor-pointer hover:bg-verde-fresco/5' : 'opacity-60',
                                   'border-b border-gris-claro/50 last:border-0',
                                 ].join(' ')}
                               >
@@ -311,7 +315,7 @@ export default function UploadPage({ user }) {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".xls,.xlsx,.csv,.txt,.tsv"
+            accept=".xls,.xlsx,.xlsm,.csv,.txt,.tsv"
             className="hidden"
             onChange={handleFileChange}
           />

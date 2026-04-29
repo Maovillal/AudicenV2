@@ -9,9 +9,10 @@ const DEFAULTS = [
   { clave: 'dias_inventario_critico', valor: '7', descripcion: 'Días restantes para mostrar alerta roja de inventario' },
   { clave: 'ns_objetivo', valor: '60', descripcion: 'Porcentaje objetivo de nivel de servicio (%)' },
   { clave: 'diferencia_merma_alerta', valor: '10', descripcion: 'Unidades de diferencia para disparar alerta de merma en dashboard' },
+  { clave: 'diferencia_conteo_alerta', valor: '3', descripcion: 'Cajas mínimas de diferencia para mostrar SKU en desglose de conteo físico' },
 ]
 
-const NUMERIC_KEYS = ['dias_inventario_alerta', 'dias_inventario_critico', 'ns_objetivo', 'diferencia_merma_alerta']
+const NUMERIC_KEYS = ['dias_inventario_alerta', 'dias_inventario_critico', 'ns_objetivo', 'diferencia_merma_alerta', 'diferencia_conteo_alerta']
 
 export default function ConfiguracionPage() {
   const [rows, setRows] = useState([])
@@ -28,10 +29,23 @@ export default function ConfiguracionPage() {
       const data = await fetchAllRows((from, to) =>
         supabase.from('configuracion').select('*').order('clave').range(from, to)
       )
-      setRows(data)
-      const d = {}
-      for (const r of data) d[r.clave] = r.valor ?? ''
-      setDraft(d)
+      const existing = new Set(data.map((r) => r.clave))
+      const missing = DEFAULTS.filter((d) => !existing.has(d.clave))
+      if (missing.length > 0) {
+        await supabase.from('configuracion').upsert(missing, { onConflict: 'clave' })
+        const refreshed = await fetchAllRows((from, to) =>
+          supabase.from('configuracion').select('*').order('clave').range(from, to)
+        )
+        setRows(refreshed)
+        const d = {}
+        for (const r of refreshed) d[r.clave] = r.valor ?? ''
+        setDraft(d)
+      } else {
+        setRows(data)
+        const d = {}
+        for (const r of data) d[r.clave] = r.valor ?? ''
+        setDraft(d)
+      }
     } catch {
       setRows([])
       setDraft({})

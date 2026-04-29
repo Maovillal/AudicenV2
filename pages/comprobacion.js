@@ -16,6 +16,14 @@ function sumField(rows, field) {
   return rows.reduce((acc, r) => acc + parseNumber(r[field]), 0)
 }
 
+function sumStockTotal(rows) {
+  return rows.reduce(
+    (acc, r) =>
+      acc + parseNumber(r.stock_libre) + parseNumber(r.stock_bloqueado) + parseNumber(r.stock_calidad),
+    0
+  )
+}
+
 function fmt(val) {
   if (val === null || val === undefined) return '—'
   return val.toLocaleString('es-MX', { maximumFractionDigits: 2 })
@@ -25,6 +33,7 @@ export default function ComprobacionPage() {
   const [fecha, setFecha] = useFechaGlobal()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState(null)
+  const [umbralConteo, setUmbralConteo] = useState(3)
 
   const ayer = useMemo(() => prevDay(fecha), [fecha])
 
@@ -37,6 +46,16 @@ export default function ComprobacionPage() {
           for (const [k, v] of Object.entries(filters)) q = q.eq(k, v)
           return q.range(f, t)
         })
+
+      const { data: cfg } = await supabase
+        .from('configuracion')
+        .select('clave, valor')
+        .eq('clave', 'diferencia_conteo_alerta')
+        .single()
+      if (cfg?.valor != null) {
+        const n = Number(cfg.valor)
+        if (!isNaN(n)) setUmbralConteo(n)
+      }
 
       const [
         liqT1Ini,
@@ -103,15 +122,15 @@ export default function ComprobacionPage() {
 
     const has = (arr) => arr && arr.length > 0
     const s = {
-      liqT1Ini:      sumField(data.liqT1Ini,      'stock_libre'),
-      liqT1Cie:      sumField(data.liqT1Cie,      'stock_libre'),
-      liqT3Cie:      sumField(data.liqT3Cie,      'stock_libre'),
+      liqT1Ini:      sumStockTotal(data.liqT1Ini),
+      liqT1Cie:      sumStockTotal(data.liqT1Cie),
+      liqT3Cie:      sumStockTotal(data.liqT3Cie),
       fisicoAyer:    fisicoTotal(data.fisicoAyer),
       fisicoHoy:     fisicoTotal(data.fisicoHoy),
-      envT1Ini:      sumField(data.envT1Ini,      'stock_libre'),
-      envT1Cie:      sumField(data.envT1Cie,      'stock_libre'),
-      envT2Cie:      sumField(data.envT2Cie,      'stock_libre'),
-      envT2CieAyer:  sumField(data.envT2CieAyer,  'stock_libre'),
+      envT1Ini:      sumStockTotal(data.envT1Ini),
+      envT1Cie:      sumStockTotal(data.envT1Cie),
+      envT2Cie:      sumStockTotal(data.envT2Cie),
+      envT2CieAyer:  sumStockTotal(data.envT2CieAyer),
       concT1Ini:     sumField(data.concT1Ini,     'fisico_total'),
       concT1Cie:     sumField(data.concT1Cie,     'fisico_total'),
       concT2Cie:     sumField(data.concT2Cie,     'fisico_total'),
@@ -248,12 +267,12 @@ export default function ComprobacionPage() {
     const filtrar = (rows) =>
       rows
         .filter((r) => String(r.sku ?? '').trim().toUpperCase() !== 'TOTALES')
-        .filter((r) => Math.abs(parseNumber(r.diferencia)) > 3)
+        .filter((r) => Math.abs(parseNumber(r.diferencia)) > umbralConteo)
         .sort((a, b) => Math.abs(parseNumber(b.diferencia)) - Math.abs(parseNumber(a.diferencia)))
     if (selectedFormula === 1)  return filtrar(data.fisicoAyer || [])
     if (selectedFormula === 11) return filtrar(data.fisicoHoy  || [])
     return []
-  }, [data, selectedFormula])
+  }, [data, selectedFormula, umbralConteo])
 
   const formulasConDetalle = new Set([1, 11])
 
@@ -471,15 +490,15 @@ export default function ComprobacionPage() {
                     </thead>
                     <tbody>
                       {[
-                        { label: 'Inv. Líquido T1 Inicio',        rows: data.liqT1Ini,      field: 'stock_libre',  filtros: `${fecha} · T1 · inicio` },
-                        { label: 'Inv. Líquido T1 Cierre',        rows: data.liqT1Cie,      field: 'stock_libre',  filtros: `${fecha} · T1 · cierre` },
-                        { label: 'Inv. Líquido T3 Cierre',        rows: data.liqT3Cie,      field: 'stock_libre',  filtros: `${fecha} · T3 · cierre` },
-                        { label: 'Conteo Físico Real (ayer)',      rows: data.fisicoAyer,    field: 'total_fisico_real', filtros: `${ayer} (fila TOTALES U−AF)`, useTotales: true },
-                        { label: 'Conteo Físico Real (hoy)',       rows: data.fisicoHoy,     field: 'total_fisico_real', filtros: `${fecha} (fila TOTALES U−AF)`, useTotales: true },
-                        { label: 'Inv. Envase T1 Inicio',         rows: data.envT1Ini,      field: 'stock_libre',  filtros: `${fecha} · T1 · inicio` },
-                        { label: 'Inv. Envase T1 Cierre',         rows: data.envT1Cie,      field: 'stock_libre',  filtros: `${fecha} · T1 · cierre` },
-                        { label: 'Inv. Envase T2 Cierre',         rows: data.envT2Cie,      field: 'stock_libre',  filtros: `${fecha} · T2 · cierre` },
-                        { label: 'Inv. Envase T2 Cierre (ayer)',  rows: data.envT2CieAyer,  field: 'stock_libre',  filtros: `${ayer} · T2 · cierre` },
+                        { label: 'Inv. Líquido T1 Inicio',        rows: data.liqT1Ini,      useStockTotal: true,  filtros: `${fecha} · T1 · inicio` },
+                        { label: 'Inv. Líquido T1 Cierre',        rows: data.liqT1Cie,      useStockTotal: true,  filtros: `${fecha} · T1 · cierre` },
+                        { label: 'Inv. Líquido T3 Cierre',        rows: data.liqT3Cie,      useStockTotal: true,  filtros: `${fecha} · T3 · cierre` },
+                        { label: 'Conteo Físico Real (ayer)',      rows: data.fisicoAyer,    field: 'total_fisico_real', filtros: `${ayer} (col. AI)`, useTotales: true },
+                        { label: 'Conteo Físico Real (hoy)',       rows: data.fisicoHoy,     field: 'total_fisico_real', filtros: `${fecha} (col. AI)`, useTotales: true },
+                        { label: 'Inv. Envase T1 Inicio',         rows: data.envT1Ini,      useStockTotal: true,  filtros: `${fecha} · T1 · inicio` },
+                        { label: 'Inv. Envase T1 Cierre',         rows: data.envT1Cie,      useStockTotal: true,  filtros: `${fecha} · T1 · cierre` },
+                        { label: 'Inv. Envase T2 Cierre',         rows: data.envT2Cie,      useStockTotal: true,  filtros: `${fecha} · T2 · cierre` },
+                        { label: 'Inv. Envase T2 Cierre (ayer)',  rows: data.envT2CieAyer,  useStockTotal: true,  filtros: `${ayer} · T2 · cierre` },
                         { label: 'Conc. Envase T1 Inicio',        rows: data.concT1Ini,     field: 'fisico_total', filtros: `${fecha} · T1 · inicio` },
                         { label: 'Conc. Envase T1 Cierre',        rows: data.concT1Cie,     field: 'fisico_total', filtros: `${fecha} · T1 · cierre` },
                         { label: 'Conc. Envase T2 Cierre',        rows: data.concT2Cie,     field: 'fisico_total', filtros: `${fecha} · T2 · cierre` },
@@ -488,9 +507,9 @@ export default function ComprobacionPage() {
                         { label: 'MB51 2010',                     rows: data.mb51_2010,     field: 'cantidad',     filtros: `${fecha} · almacén 2010` },
                         { label: 'Ingresos de Envase',            rows: data.ingreso,       field: 'total',        filtros: `${fecha}` },
                         { label: 'Cargas a Salir (T3 Inicio)',    rows: data.cargas,        field: 'cantidad',     filtros: `${fecha} · T3 · inicio` },
-                      ].map(({ label, rows, field, filtros, useTotales }) => {
+                      ].map(({ label, rows, field, filtros, useTotales, useStockTotal }) => {
                         const val = rows.length > 0
-                          ? (useTotales ? fisicoTotal(rows) : sumField(rows, field))
+                          ? (useTotales ? fisicoTotal(rows) : useStockTotal ? sumStockTotal(rows) : sumField(rows, field))
                           : null
                         return (
                           <tr key={label}>
