@@ -3,7 +3,7 @@ import { useFechaGlobal } from '@/lib/useFecha'
 import AuthGuard from '@/components/AuthGuard'
 import Layout from '@/components/Layout'
 import { supabase, fetchAllRows } from '../lib/supabase'
-import { formatDateLong, formatDateTime, formatTime, parseNumber } from '@/lib/format'
+import { formatDateLong, formatDateTime, formatTime, parseNumber, formatNumber } from '@/lib/format'
 import { bebasNeue } from './_app'
 
 function sumField(rows, field) {
@@ -245,7 +245,7 @@ function KpiCard({ label, value, color, icon }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className={`${bebasNeue.className} text-4xl ${color}`}>
-            {Number.isFinite(value) ? Math.round(value * 100) / 100 : 0}
+            {formatNumber(value)}
           </p>
           <p className="mt-2 text-sm font-semibold text-gris-texto">{label}</p>
         </div>
