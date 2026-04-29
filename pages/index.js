@@ -20,6 +20,9 @@ export default function DashboardPage() {
   const [kpiEnvase, setKpiEnvase] = useState(0)
   const [kpiCajas, setKpiCajas] = useState(0)
   const [kpiDiff, setKpiDiff] = useState(0)
+  const [kpiHLDia, setKpiHLDia] = useState(0)
+  const [kpiHLMes, setKpiHLMes] = useState(0)
+  const [kpiHLMeta, setKpiHLMeta] = useState(0)
   const [uploads, setUploads] = useState([])
   const [alertas, setAlertas] = useState([])
   const [latestFecha, setLatestFecha] = useState(null)
@@ -47,6 +50,13 @@ export default function DashboardPage() {
       setKpiEnvase(sumField(env, 'stock_libre'))
       setKpiCajas(sumField(sal, 'cantidad'))
       setKpiDiff(sumAbs(cf, 'diferencia'))
+
+      const { data: hlData } = await supabase.rpc('get_hl_stats', { p_fecha: fecha })
+      if (hlData?.[0]) {
+        setKpiHLDia(parseNumber(hlData[0].hl_dia))
+        setKpiHLMes(parseNumber(hlData[0].hl_mes))
+        setKpiHLMeta(parseNumber(hlData[0].meta_hl))
+      }
 
       const { data: lastFechaRow } = await supabase
         .from('conteo_fisico')
@@ -86,6 +96,9 @@ export default function DashboardPage() {
       setKpiEnvase(0)
       setKpiCajas(0)
       setKpiDiff(0)
+      setKpiHLDia(0)
+      setKpiHLMes(0)
+      setKpiHLMeta(0)
       setUploads([])
       setAlertas([])
     } finally {
@@ -185,6 +198,34 @@ export default function DashboardPage() {
           )}
 
           <section>
+            <h2 className={`${bebasNeue.className} mb-3 text-2xl text-verde-botella`}>Hectolitros</h2>
+            {loading ? (
+              <p className="text-gris-texto">Cargando HL…</p>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                <KpiCard
+                  label="HL Vendidos Hoy"
+                  value={kpiHLDia}
+                  color="text-verde-fresco"
+                  unit="HL"
+                  icon={
+                    <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                        d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
+                      />
+                    </svg>
+                  }
+                />
+                <KpiCardMeta
+                  label="HL Acumulado del Mes"
+                  value={kpiHLMes}
+                  meta={kpiHLMeta}
+                />
+              </div>
+            )}
+          </section>
+
+          <section>
             <h2 className={`${bebasNeue.className} mb-3 text-2xl text-verde-botella`}>Últimas Cargas</h2>
             <div className="overflow-x-auto rounded-[12px] border border-gris-claro bg-white shadow-card">
               <table className="table-audicen min-w-full">
@@ -239,17 +280,52 @@ export default function DashboardPage() {
   )
 }
 
-function KpiCard({ label, value, color, icon }) {
+function KpiCard({ label, value, color, icon, unit }) {
   return (
     <div className="flex flex-col justify-between rounded-[12px] border border-gris-claro bg-white p-5 shadow-card">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className={`${bebasNeue.className} text-4xl ${color}`}>
-            {formatNumber(value)}
+            {formatNumber(value)}{unit ? <span className="ml-1 text-2xl">{unit}</span> : null}
           </p>
           <p className="mt-2 text-sm font-semibold text-gris-texto">{label}</p>
         </div>
         <div className={color}>{icon}</div>
+      </div>
+    </div>
+  )
+}
+
+function KpiCardMeta({ label, value, meta }) {
+  const pct = meta > 0 ? Math.min(Math.round((value / meta) * 100), 100) : 0
+  const color = pct >= 100 ? 'bg-verde-fresco' : pct >= 60 ? 'bg-ambar' : 'bg-rojo'
+  const textColor = pct >= 100 ? 'text-verde-fresco' : pct >= 60 ? 'text-ambar' : 'text-rojo'
+  return (
+    <div className="flex flex-col justify-between rounded-[12px] border border-gris-claro bg-white p-5 shadow-card">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1">
+          <p className={`${bebasNeue.className} text-4xl ${textColor}`}>
+            {formatNumber(value)} <span className="text-2xl">HL</span>
+          </p>
+          <p className="mt-2 text-sm font-semibold text-gris-texto">{label}</p>
+          <div className="mt-3">
+            <div className="mb-1 flex items-center justify-between text-xs text-gris-texto">
+              <span>{pct}% de meta</span>
+              <span>Meta: {formatNumber(meta)} HL</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-gris-claro">
+              <div
+                className={`h-2 rounded-full transition-all duration-500 ${color}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        </div>
+        <svg className={`h-8 w-8 shrink-0 ${textColor}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+            d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 002.748 1.35m8.272-6.842V4.5c0 2.108-.966 3.99-2.48 5.228m2.48-5.492a46.32 46.32 0 012.916.52 6.003 6.003 0 01-5.395 4.972m0 0a6.726 6.726 0 01-2.749 1.35m0 0a6.772 6.772 0 01-3.044 0"
+          />
+        </svg>
       </div>
     </div>
   )
