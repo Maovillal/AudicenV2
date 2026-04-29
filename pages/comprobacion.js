@@ -24,6 +24,10 @@ function sumStockTotal(rows) {
   )
 }
 
+function sumStockTotalCJ(rows) {
+  return sumStockTotal((rows || []).filter((r) => r.unidad === 'CJ'))
+}
+
 function fmt(val) {
   if (val === null || val === undefined) return '—'
   return val.toLocaleString('es-MX', { maximumFractionDigits: 2 })
@@ -127,10 +131,10 @@ export default function ComprobacionPage() {
       liqT3Cie:      sumStockTotal(data.liqT3Cie),
       fisicoAyer:    fisicoTotal(data.fisicoAyer),
       fisicoHoy:     fisicoTotal(data.fisicoHoy),
-      envT1Ini:      sumStockTotal(data.envT1Ini),
-      envT1Cie:      sumStockTotal(data.envT1Cie),
-      envT2Cie:      sumStockTotal(data.envT2Cie),
-      envT2CieAyer:  sumStockTotal(data.envT2CieAyer),
+      envT1Ini:      sumStockTotalCJ(data.envT1Ini),
+      envT1Cie:      sumStockTotalCJ(data.envT1Cie),
+      envT2Cie:      sumStockTotalCJ(data.envT2Cie),
+      envT2CieAyer:  sumStockTotalCJ(data.envT2CieAyer),
       concT1Ini:     sumField(data.concT1Ini,     'fisico_total'),
       concT1Cie:     sumField(data.concT1Cie,     'fisico_total'),
       concT2Cie:     sumField(data.concT2Cie,     'fisico_total'),
@@ -495,10 +499,10 @@ export default function ComprobacionPage() {
                         { label: 'Inv. Líquido T3 Cierre',        rows: data.liqT3Cie,      useStockTotal: true,  filtros: `${fecha} · T3 · cierre` },
                         { label: 'Conteo Físico Real (ayer)',      rows: data.fisicoAyer,    field: 'total_fisico_real', filtros: `${ayer} (col. AI)`, useTotales: true },
                         { label: 'Conteo Físico Real (hoy)',       rows: data.fisicoHoy,     field: 'total_fisico_real', filtros: `${fecha} (col. AI)`, useTotales: true },
-                        { label: 'Inv. Envase T1 Inicio',         rows: data.envT1Ini,      useStockTotal: true,  filtros: `${fecha} · T1 · inicio` },
-                        { label: 'Inv. Envase T1 Cierre',         rows: data.envT1Cie,      useStockTotal: true,  filtros: `${fecha} · T1 · cierre` },
-                        { label: 'Inv. Envase T2 Cierre',         rows: data.envT2Cie,      useStockTotal: true,  filtros: `${fecha} · T2 · cierre` },
-                        { label: 'Inv. Envase T2 Cierre (ayer)',  rows: data.envT2CieAyer,  useStockTotal: true,  filtros: `${ayer} · T2 · cierre` },
+                        { label: 'Inv. Envase T1 Inicio',         rows: data.envT1Ini,      useStockTotalCJ: true, filtros: `${fecha} · T1 · inicio · CJ` },
+                        { label: 'Inv. Envase T1 Cierre',         rows: data.envT1Cie,      useStockTotalCJ: true, filtros: `${fecha} · T1 · cierre · CJ` },
+                        { label: 'Inv. Envase T2 Cierre',         rows: data.envT2Cie,      useStockTotalCJ: true, filtros: `${fecha} · T2 · cierre · CJ` },
+                        { label: 'Inv. Envase T2 Cierre (ayer)',  rows: data.envT2CieAyer,  useStockTotalCJ: true, filtros: `${ayer} · T2 · cierre · CJ` },
                         { label: 'Conc. Envase T1 Inicio',        rows: data.concT1Ini,     field: 'fisico_total', filtros: `${fecha} · T1 · inicio` },
                         { label: 'Conc. Envase T1 Cierre',        rows: data.concT1Cie,     field: 'fisico_total', filtros: `${fecha} · T1 · cierre` },
                         { label: 'Conc. Envase T2 Cierre',        rows: data.concT2Cie,     field: 'fisico_total', filtros: `${fecha} · T2 · cierre` },
@@ -507,9 +511,9 @@ export default function ComprobacionPage() {
                         { label: 'MB51 2010',                     rows: data.mb51_2010,     field: 'cantidad',     filtros: `${fecha} · almacén 2010` },
                         { label: 'Ingresos de Envase',            rows: data.ingreso,       field: 'total',        filtros: `${fecha}` },
                         { label: 'Cargas a Salir (T3 Inicio)',    rows: data.cargas,        field: 'cantidad',     filtros: `${fecha} · T3 · inicio` },
-                      ].map(({ label, rows, field, filtros, useTotales, useStockTotal }) => {
+                      ].map(({ label, rows, field, filtros, useTotales, useStockTotal, useStockTotalCJ }) => {
                         const val = rows.length > 0
-                          ? (useTotales ? fisicoTotal(rows) : useStockTotal ? sumStockTotal(rows) : sumField(rows, field))
+                          ? (useTotales ? fisicoTotal(rows) : useStockTotalCJ ? sumStockTotalCJ(rows) : useStockTotal ? sumStockTotal(rows) : sumField(rows, field))
                           : null
                         return (
                           <tr key={label}>
