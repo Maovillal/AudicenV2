@@ -37,7 +37,7 @@ export default function DashboardPage() {
         supabase.from('inventario_envase').select('stock_libre').eq('fecha', fecha).range(from, to)
       )
       const sal = await fetchAllRows((from, to) =>
-        supabase.from('salidas_rutas').select('cantidad,cajas').eq('fecha', fecha).range(from, to)
+        supabase.from('salidas_rutas').select('cantidad').eq('fecha', fecha).range(from, to)
       )
       const cf = await fetchAllRows((from, to) =>
         supabase.from('conteo_fisico').select('diferencia').eq('fecha', fecha).range(from, to)
@@ -45,9 +45,7 @@ export default function DashboardPage() {
 
       setKpiLiquido(sumField(liq, 'stock_libre'))
       setKpiEnvase(sumField(env, 'stock_libre'))
-      setKpiCajas(
-        sal.reduce((acc, r) => acc + parseNumber(r.cantidad ?? r.cajas), 0)
-      )
+      setKpiCajas(sumField(sal, 'cantidad'))
       setKpiDiff(sumAbs(cf, 'diferencia'))
 
       const { data: lastFechaRow } = await supabase
