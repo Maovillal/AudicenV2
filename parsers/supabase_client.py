@@ -215,10 +215,20 @@ def upload_records(tipo: str, parsed: list[dict], fecha: date, turno: int, momen
 
 
 def log_upload(tipo: str, registros: int, fecha: date, turno: int, momento: str) -> None:
-    """Registra el ingest en upload_log para auditoría. uploaded_by=null marca origen automático."""
+    """Registra el ingest en upload_log para auditoría. uploaded_by=null marca origen automático.
+
+    IMPORTANTE: la página /upload de V2 lee upload_log.tipo_archivo para
+    pintar los checks verdes del checklist. Espera los nombres canónicos de
+    V2 (inventario_liquido, inventario_envase, conciliacion_envase). Si
+    escribimos nuestros tipos internos (sap_2000, sap_2010), el checklist
+    los muestra como NO CARGADOS aunque la data esté en su tabla.
+    """
+    # Mapear tipo interno (sap_2000, sap_2010) al tipo canónico de V2 (inventario_liquido,
+    # inventario_envase). Para los tipos donde el nombre coincide (conciliacion_envase) es no-op.
+    v2_tipo = TIPO_TO_TABLE.get(tipo, tipo)
     fecha_str = fecha.isoformat() if isinstance(fecha, date) else fecha
     _insert("upload_log", [{
-        "tipo_archivo": tipo,
+        "tipo_archivo": v2_tipo,
         "registros": registros,
         "uploaded_by": None,  # null = ingestor automático (vs UUID de usuario en upload manual)
         "fecha": fecha_str,
