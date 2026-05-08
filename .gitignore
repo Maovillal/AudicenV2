@@ -26,6 +26,7 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
+parsers/.env
 
 # vercel
 .vercel
@@ -33,3 +34,20 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# --- Python ingest pipeline ---
+
+# Datos reales del almacén descargados desde Gmail
+parsers/samples/
+*.XLS
+*.xls
+
+# Credenciales OAuth Google (descargadas localmente, nunca al repo)
+parsers/credentials.json
+parsers/token.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
