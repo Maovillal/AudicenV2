@@ -23,6 +23,7 @@ import openpyxl
 from classifier import AmbiguousClassificationError, classify
 from parse_conciliacion import parse_conciliacion
 from parse_sap import parse_sap
+from ingest_mail import parse_email_subject
 
 
 # --- Fixtures sintéticos ---------------------------------------------------
@@ -171,6 +172,46 @@ def test_parse_conciliacion() -> None:
     print(f"  [OK] parse_conciliacion: {len(rows)} filas, resumen ignorado, factor extraído")
 
 
+def test_parse_email_subject() -> None:
+    """El asunto del correo es la fuente de verdad para (turno, momento, fecha)."""
+    cases = [
+        # Convención canónica del supervisor.
+        ("INICIO_T1_08.05.2026",       (1, "inicio", "2026-05-08")),
+        ("CIERRE_T2_08.05.2026",       (2, "cierre", "2026-05-08")),
+        ("CIERRE_T3_31.12.2026",       (3, "cierre", "2026-12-31")),
+        # Variaciones de separador.
+        ("INICIO T1 08-05-2026",       (1, "inicio", "2026-05-08")),
+        ("INICIO-T1-08/05/2026",       (1, "inicio", "2026-05-08")),
+        # Año a 2 dígitos.
+        ("CIERRE_T2_08.05.26",         (2, "cierre", "2026-05-08")),
+        # Sin fecha: turno y momento siguen funcionando.
+        ("INICIO_T1",                  (1, "inicio", None)),
+        # TURNO_N en lugar de TN.
+        ("CIERRE_TURNO_2_08.05.2026",  (2, "cierre", "2026-05-08")),
+        # FIN como sinónimo de cierre.
+        ("FIN_T3_08.05.2026",          (3, "cierre", "2026-05-08")),
+        # Insensible a mayúsculas.
+        ("inicio_t1_08.05.2026",       (1, "inicio", "2026-05-08")),
+        # Asuntos NO Audicen → todo None (deben filtrarse).
+        ("Reunión semanal",            (None, None, None)),
+        ("Re: rolas para la fiesta",   (None, None, None)),
+        ("",                           (None, None, None)),
+    ]
+    failures = 0
+    for subject, expected in cases:
+        t, m, f = parse_email_subject(subject)
+        actual = (t, m, f.isoformat() if f else None)
+        ok = actual == expected
+        mark = "OK" if ok else "FAIL"
+        print(f"  [{mark}] {subject!r}")
+        if not ok:
+            print(f"        esperado: {expected}")
+            print(f"        actual:   {actual}")
+            failures += 1
+    if failures:
+        raise AssertionError(f"parse_email_subject: {failures} casos fallaron")
+
+
 # --- Modo CLI: parsear archivo real ----------------------------------------
 
 def _run_real(mode: str, path: str, *extra: str) -> None:
@@ -195,6 +236,8 @@ def main() -> None:
         _run_real(sys.argv[1], sys.argv[2], *sys.argv[3:])
         return
 
+    print("→ parse_email_subject")
+    test_parse_email_subject()
     print("→ classifier")
     test_classifier()
     print("→ parse_sap (datos sintéticos)")

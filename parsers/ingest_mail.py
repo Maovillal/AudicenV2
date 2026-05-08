@@ -7,13 +7,22 @@ classifier.py, y los organiza en samples/YYYY-MM/turno_N/.
 Para evitar procesar dos veces el mismo correo, le agrega la etiqueta
 'auditor-procesado'. La búsqueda excluye los que ya tengan esa etiqueta.
 
+**El asunto del correo es la fuente de verdad para (turno, momento, fecha).**
+Convención del supervisor: `INICIO_T1_08.05.2026`, `CIERRE_T2_08.05.2026`, etc.
+- El nombre de archivo solo decide el TIPO (sap_2000, conciliacion, etc.).
+- El asunto decide CUÁNDO (turno + momento + fecha).
+- Si el asunto no machea el patrón → el correo se considera ajeno a Audicen
+  y se marca como procesado sin tocar adjuntos (filtra correos de otros
+  temas que vienen del mismo remitente).
+
 Variables de entorno requeridas:
     GMAIL_CLIENT_ID
     GMAIL_CLIENT_SECRET
     GMAIL_REFRESH_TOKEN
+    SUPABASE_URL
+    SUPABASE_SERVICE_KEY
 
 Pendientes (TODO):
-    - Invocar el parser correspondiente y subir los datos a Supabase
     - Manejar paginación cuando lleguen >100 mensajes pendientes
     - Decodificar nombres de adjunto en RFC 2047 (acentos)
 """
@@ -22,6 +31,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import sys
 from datetime import date
 from email.utils import parsedate_to_datetime
@@ -166,6 +176,55 @@ def email_send_date(msg: dict) -> Optional[date]:
         return None
 
 
+def email_subject(msg: dict) -> str:
+    headers = msg.get("payload", {}).get("headers", [])
+    return next((h["value"] for h in headers if h.get("name", "").lower() == "subject"), "")
+
+
+# Patrón del asunto del supervisor: INICIO_T1_08.05.2026, CIERRE_T2_08-05-26, etc.
+# Acepta separadores `_`, `-`, espacio o `.`; turno como T1 o TURNO_1; año a 2 o 4 dígitos.
+SUBJECT_PATTERN = re.compile(
+    r"(?P<momento>INICIO|CIERRE|FIN)"
+    r"[_\s\-]*"
+    r"T(?:URNO[_\s\-]*)?(?P<turno>[123])"
+    r"(?:[_\s\-]*"
+    r"(?P<dia>\d{1,2})[._\-/](?P<mes>\d{1,2})[._\-/](?P<anio>\d{2,4})"
+    r")?",
+    re.IGNORECASE,
+)
+
+
+def parse_email_subject(subject: str) -> tuple[Optional[int], Optional[str], Optional[date]]:
+    """
+    Extrae (turno, momento, fecha) del asunto. Si el asunto no machea el
+    patrón de Audicen, devuelve (None, None, None) y el caller debe
+    descartar el correo (no es para nosotros).
+    """
+    if not subject:
+        return None, None, None
+    m = SUBJECT_PATTERN.search(subject)
+    if not m:
+        return None, None, None
+
+    momento_raw = m.group("momento").upper()
+    momento = "inicio" if momento_raw == "INICIO" else "cierre"
+    turno = int(m.group("turno"))
+
+    fecha = None
+    if m.group("dia"):
+        d = int(m.group("dia"))
+        mo = int(m.group("mes"))
+        y = int(m.group("anio"))
+        if y < 100:
+            y += 2000
+        try:
+            fecha = date(y, mo, d)
+        except ValueError:
+            pass
+
+    return turno, momento, fecha
+
+
 def mark_processed(service, msg_id: str, label_id: str) -> None:
     service.users().messages().modify(
         userId="me",
@@ -207,21 +266,47 @@ def parse_file(tipo: str, path: Path, almacen_hint: Optional[int] = None) -> lis
 
 
 def process_message(service, msg_id: str, label_id: str) -> dict:
-    """Procesa un mensaje: descarga adjuntos, clasifica, guarda, parsea y sube a Supabase."""
-    summary = {"saved": 0, "uploaded_rows": 0, "ambiguous": 0, "unknown": 0, "unsupported": 0, "errors": 0}
+    """Procesa un mensaje: descarga adjuntos, clasifica, guarda, parsea y sube a Supabase.
+
+    El asunto del correo gobierna (turno, momento, fecha). Si el asunto no
+    machea el patrón de Audicen, el correo se ignora y se marca como
+    procesado para no volver a evaluarlo.
+    """
+    summary = {
+        "saved": 0, "uploaded_rows": 0,
+        "ambiguous": 0, "unknown": 0, "unsupported": 0,
+        "filtered": 0, "errors": 0,
+    }
 
     try:
         msg = get_message_full(service, msg_id)
-        attachments = get_attachments_from_msg(service, msg_id, msg)
     except HttpError as e:
         print(f"  [ERROR] no se pudo leer mensaje {msg_id}: {e}")
         summary["errors"] += 1
         return summary
 
-    fallback_date = email_send_date(msg)
+    subject = email_subject(msg)
+    subj_turno, subj_momento, subj_fecha = parse_email_subject(subject)
+
+    # Gate: si el asunto no machea el patrón de Audicen, no es para nosotros.
+    if subj_turno is None or subj_momento is None:
+        print(f"  [FILTER] Asunto fuera del patrón Audicen: {subject!r} — ignorado")
+        summary["filtered"] += 1
+        mark_processed(service, msg_id, label_id)
+        return summary
+
+    fallback_date = subj_fecha or email_send_date(msg)
+    print(f"  Asunto: {subject!r} → T{subj_turno} {subj_momento}, fecha={fallback_date}")
+
+    try:
+        attachments = get_attachments_from_msg(service, msg_id, msg)
+    except HttpError as e:
+        print(f"  [ERROR] no se pudieron leer adjuntos: {e}")
+        summary["errors"] += 1
+        return summary
 
     if not attachments:
-        print(f"  mensaje {msg_id}: sin adjuntos relevantes")
+        print(f"  mensaje sin adjuntos")
         mark_processed(service, msg_id, label_id)
         return summary
 
@@ -238,8 +323,10 @@ def process_message(service, msg_id: str, label_id: str) -> dict:
             summary["unknown"] += 1
             continue
 
-        # Resolver fecha: nombre de archivo > fecha del correo > hoy.
-        fecha = cls.fecha or fallback_date or date.today()
+        # El asunto manda: pisamos el turno/momento/fecha del classifier.
+        cls.turno = subj_turno
+        cls.momento = subj_momento
+        fecha = subj_fecha or cls.fecha or fallback_date or date.today()
 
         # 1. Guardar el archivo en samples/ para auditoría/respaldo.
         path = organize_path(filename, fecha, cls.turno)
@@ -253,11 +340,6 @@ def process_message(service, msg_id: str, label_id: str) -> dict:
         if cls.tipo not in SUPPORTED_TIPOS:
             print(f"  [INFO]  {cls.tipo} aún no se sube automático; sigue por upload manual")
             summary["unsupported"] += 1
-            continue
-
-        if cls.turno is None or cls.momento is None:
-            print(f"  [WARN]  {filename}: falta turno/momento, no se sube")
-            summary["errors"] += 1
             continue
 
         try:
@@ -285,7 +367,11 @@ def main() -> int:
     msgs = list_messages(service, query)
     print(f"Mensajes nuevos: {len(msgs)}")
 
-    totals = {"saved": 0, "uploaded_rows": 0, "ambiguous": 0, "unknown": 0, "unsupported": 0, "errors": 0}
+    totals = {
+        "saved": 0, "uploaded_rows": 0,
+        "ambiguous": 0, "unknown": 0, "unsupported": 0,
+        "filtered": 0, "errors": 0,
+    }
     for m in msgs:
         print(f"\n-- mensaje {m['id']} --")
         s = process_message(service, m["id"], label_id)
@@ -293,12 +379,13 @@ def main() -> int:
             totals[k] += s[k]
 
     print("\n=== Resumen ===")
-    print(f"  Adjuntos guardados   : {totals['saved']}")
-    print(f"  Filas subidas a DB   : {totals['uploaded_rows']}")
-    print(f"  Tipos sin parser aún : {totals['unsupported']}")
-    print(f"  Nombres ambiguos     : {totals['ambiguous']}")
-    print(f"  Tipos desconocidos   : {totals['unknown']}")
-    print(f"  Errores              : {totals['errors']}")
+    print(f"  Adjuntos guardados      : {totals['saved']}")
+    print(f"  Filas subidas a DB      : {totals['uploaded_rows']}")
+    print(f"  Correos no-Audicen      : {totals['filtered']}")
+    print(f"  Tipos sin parser aún    : {totals['unsupported']}")
+    print(f"  Nombres ambiguos        : {totals['ambiguous']}")
+    print(f"  Tipos desconocidos      : {totals['unknown']}")
+    print(f"  Errores                 : {totals['errors']}")
     return 0 if totals["errors"] == 0 else 1
 
 
