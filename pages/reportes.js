@@ -285,7 +285,7 @@ export default function ReportesPage() {
 
                 {!aiText && !aiLoading && !aiError && (
                   <p className="text-gris-texto text-sm italic">
-                    Click en "Generar análisis" para que la IA revise los datos del período seleccionado y produzca un reporte ejecutivo con anomalías, oportunidades y riesgos.
+                    Click en «Generar análisis» para que la IA revise los datos del período seleccionado y produzca un reporte ejecutivo con anomalías, oportunidades y riesgos.
                   </p>
                 )}
 
