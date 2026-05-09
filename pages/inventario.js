@@ -140,28 +140,6 @@ export default function InventarioPage() {
         }
       }
 
-      // T1 inicio del envase como baseline para calcular ingreso del día por SKU.
-      // ingreso[sku] = stock_actual - stock_inicio (capeado en 0).
-      const envInicio = await fetchAllRows((from, to) =>
-        supabase
-          .from('inventario_envase')
-          .select('sku,stock_libre,stock_bloqueado,stock_calidad')
-          .eq('fecha', fecha)
-          .eq('turno', 1)
-          .eq('momento', 'inicio')
-          .range(from, to)
-      )
-      const inicioBySku = new Map()
-      for (const r of envInicio) inicioBySku.set(r.sku, stockTotal(r))
-
-      // Enriquecer cada fila con: stockActual, stockInicial, ingreso del día.
-      envRows = envRows.map((r) => {
-        const stockActualVal = stockTotal(r)
-        const stockInicialVal = inicioBySku.has(r.sku) ? inicioBySku.get(r.sku) : null
-        const ingreso = stockInicialVal != null ? Math.max(0, stockActualVal - stockInicialVal) : null
-        return { ...r, _stockActual: stockActualVal, _stockInicial: stockInicialVal, _ingreso: ingreso }
-      })
-
       // Orden descendente por físico real (líquido) o stock libre (envase).
       liqRows.sort((a, b) => parseNumber(b.total_fisico_real) - parseNumber(a.total_fisico_real))
       envRows.sort((a, b) => parseNumber(b.stock_libre) - parseNumber(a.stock_libre))
@@ -200,11 +178,6 @@ export default function InventarioPage() {
       return sku.includes(q) || desc.includes(q)
     })
   }, [envase, search])
-
-  // Suma total del ingreso del día en envase (denominador para % del ingreso).
-  const totalIngresoEnvase = useMemo(() => {
-    return envase.reduce((acc, r) => acc + (parseNumber(r._ingreso) || 0), 0)
-  }, [envase])
 
   return (
     <AuthGuard>
@@ -306,9 +279,8 @@ export default function InventarioPage() {
                     <th>SKU</th>
                     <th>Descripción</th>
                     <th>Stock Libre</th>
-                    <th>Ingreso del día</th>
-                    <th>% aumento</th>
-                    <th>% del ingreso</th>
+                    <th>Bloqueado</th>
+                    <th>Calidad</th>
                     <th>Total</th>
                   </tr>
                 </thead>
@@ -317,11 +289,10 @@ export default function InventarioPage() {
                     <tr key={r.id ?? `${r.sku}-${r.fecha}`}>
                       <td className="font-semibold">{r.sku}</td>
                       <td>{r.descripcion ?? '—'}</td>
-                      <td>{fmt2(r.stock_libre)}</td>
-                      <td className="font-semibold">{fmt2(r._ingreso)}</td>
-                      <td>{fmtPct(r._ingreso, r._stockInicial)}</td>
-                      <td>{fmtPct(r._ingreso, totalIngresoEnvase)}</td>
-                      <td>{fmt2(r._stockActual)}</td>
+                      <td>{r.stock_libre ?? '—'}</td>
+                      <td>{r.stock_bloqueado ?? r.bloqueado ?? '—'}</td>
+                      <td>{r.stock_calidad ?? r.calidad ?? '—'}</td>
+                      <td>{r.total ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>

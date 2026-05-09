@@ -1,9 +1,28 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useFechaGlobal } from '@/lib/useFecha'
 import AuthGuard from '@/components/AuthGuard'
 import Layout from '@/components/Layout'
 import { supabase, fetchAllRows } from '../lib/supabase'
+import { parseNumber } from '@/lib/format'
 import { bebasNeue } from './_app'
+
+// Helpers de formato.
+function fmt2(v) {
+  if (v == null || v === '') return '—'
+  const n = parseNumber(v)
+  if (!Number.isFinite(n)) return '—'
+  return n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+function fmtPct(num, den) {
+  if (num == null || den == null) return '—'
+  const n = parseNumber(num)
+  const d = parseNumber(den)
+  if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return '—'
+  return ((n / d) * 100).toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%'
+}
+function stockTotalRow(r) {
+  return parseNumber(r?.stock_libre) + parseNumber(r?.stock_bloqueado) + parseNumber(r?.stock_calidad)
+}
 
 export default function EnvasePage() {
   const [fecha, setFecha] = useFechaGlobal()
@@ -15,10 +34,42 @@ export default function EnvasePage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [a, b, c] = await Promise.all([
-        fetchAllRows((from, to) =>
-          supabase.from('inventario_envase').select('*').eq('fecha', fecha).range(from, to)
-        ),
+      // Inventario envase: T2 cierre (lo más reciente del día). Si no existe,
+      // fallback al último snapshot disponible.
+      let invRows = await fetchAllRows((from, to) =>
+        supabase.from('inventario_envase').select('*')
+          .eq('fecha', fecha).eq('turno', 2).eq('momento', 'cierre').range(from, to)
+      )
+      if (invRows.length === 0) {
+        const { data: latest } = await supabase.from('inventario_envase')
+          .select('turno,momento').eq('fecha', fecha)
+          .order('created_at', { ascending: false }).limit(1).maybeSingle()
+        if (latest) {
+          invRows = await fetchAllRows((from, to) =>
+            supabase.from('inventario_envase').select('*')
+              .eq('fecha', fecha).eq('turno', latest.turno).eq('momento', latest.momento).range(from, to)
+          )
+        }
+      }
+
+      // T1 inicio para baseline del cálculo de ingreso del día por SKU.
+      const invInicio = await fetchAllRows((from, to) =>
+        supabase.from('inventario_envase')
+          .select('sku,stock_libre,stock_bloqueado,stock_calidad')
+          .eq('fecha', fecha).eq('turno', 1).eq('momento', 'inicio').range(from, to)
+      )
+      const inicioBySku = new Map()
+      for (const r of invInicio) inicioBySku.set(r.sku, stockTotalRow(r))
+
+      // Enriquecer con _stockActual, _stockInicial, _ingreso del día.
+      invRows = invRows.map((r) => {
+        const stockActualVal = stockTotalRow(r)
+        const stockInicialVal = inicioBySku.has(r.sku) ? inicioBySku.get(r.sku) : null
+        const ingreso = stockInicialVal != null ? Math.max(0, stockActualVal - stockInicialVal) : null
+        return { ...r, _stockActual: stockActualVal, _stockInicial: stockInicialVal, _ingreso: ingreso }
+      })
+
+      const [b, c] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('conciliacion_envase').select('*').eq('fecha', fecha).range(from, to)
         ),
@@ -26,10 +77,11 @@ export default function EnvasePage() {
           supabase.from('ingreso_envase').select('*').eq('fecha', fecha).range(from, to)
         ),
       ])
-      setInv(a)
+      setInv(invRows)
       setConc(b)
       setIng(c)
-    } catch {
+    } catch (e) {
+      console.error('[envase] error cargando data:', e)
       setInv([])
       setConc([])
       setIng([])
@@ -41,6 +93,12 @@ export default function EnvasePage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Total ingresado del día (denominador para % del ingreso).
+  const totalIngresoEnvase = useMemo(
+    () => inv.reduce((acc, r) => acc + (parseNumber(r._ingreso) || 0), 0),
+    [inv],
+  )
 
   const empty = !loading && inv.length === 0 && conc.length === 0 && ing.length === 0
 
@@ -78,8 +136,9 @@ export default function EnvasePage() {
                         <th>SKU</th>
                         <th>Descripción</th>
                         <th>Stock Libre</th>
-                        <th>Bloqueado</th>
-                        <th>Calidad</th>
+                        <th>Ingreso del día</th>
+                        <th>% aumento</th>
+                        <th>% del ingreso</th>
                         <th>Total</th>
                       </tr>
                     </thead>
@@ -88,10 +147,11 @@ export default function EnvasePage() {
                         <tr key={r.id ?? `${r.sku}-${r.fecha}`}>
                           <td className="font-semibold">{r.sku}</td>
                           <td>{r.descripcion ?? '—'}</td>
-                          <td>{r.stock_libre ?? '—'}</td>
-                          <td>{r.stock_bloqueado ?? r.bloqueado ?? '—'}</td>
-                          <td>{r.stock_calidad ?? r.calidad ?? '—'}</td>
-                          <td>{r.total ?? '—'}</td>
+                          <td>{fmt2(r.stock_libre)}</td>
+                          <td className="font-semibold">{fmt2(r._ingreso)}</td>
+                          <td>{fmtPct(r._ingreso, r._stockInicial)}</td>
+                          <td>{fmtPct(r._ingreso, totalIngresoEnvase)}</td>
+                          <td>{fmt2(r._stockActual)}</td>
                         </tr>
                       ))}
                     </tbody>
