@@ -73,14 +73,54 @@ export default function InventarioPage() {
       }
       setPromediosSku(promMap)
 
+      // Líquido = conteo físico del día (T3 cierre, lo real en piso).
+      // Excluimos la fila agregada con sku='TOTALES' (esa es para el KPI
+      // del dashboard, no aplica al detalle por SKU).
       const liqRows = await fetchAllRows((from, to) =>
-        supabase.from('inventario_liquido').select('*').eq('fecha', fecha).range(from, to)
-      )
-      const envRows = await fetchAllRows((from, to) =>
-        supabase.from('inventario_envase').select('*').eq('fecha', fecha).range(from, to)
+        supabase
+          .from('conteo_fisico')
+          .select('sku,sku_sap,descripcion,total_fisico_real,total_sistema,diferencia,total_fisico,merma_total')
+          .eq('fecha', fecha)
+          .neq('sku', 'TOTALES')
+          .range(from, to)
       )
 
-      liqRows.sort((a, b) => parseNumber(b.stock_libre) - parseNumber(a.stock_libre))
+      // Envase = inventario SAP al cierre del T2 (lo más reciente del día
+      // según la lógica del supervisor). Si todavía no hay T2 cierre, cae al
+      // último snapshot disponible para no dejar la pestaña vacía.
+      let envRows = await fetchAllRows((from, to) =>
+        supabase
+          .from('inventario_envase')
+          .select('*')
+          .eq('fecha', fecha)
+          .eq('turno', 2)
+          .eq('momento', 'cierre')
+          .range(from, to)
+      )
+      if (envRows.length === 0) {
+        const { data: latest } = await supabase
+          .from('inventario_envase')
+          .select('turno, momento')
+          .eq('fecha', fecha)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (latest) {
+          envRows = await fetchAllRows((from, to) =>
+            supabase
+              .from('inventario_envase')
+              .select('*')
+              .eq('fecha', fecha)
+              .eq('turno', latest.turno)
+              .eq('momento', latest.momento)
+              .range(from, to)
+          )
+        }
+      }
+
+      // Orden descendente por físico real (líquido) o stock libre (envase).
+      liqRows.sort((a, b) => parseNumber(b.total_fisico_real) - parseNumber(a.total_fisico_real))
+      envRows.sort((a, b) => parseNumber(b.stock_libre) - parseNumber(a.stock_libre))
       setLiquido(liqRows)
       setEnvase(envRows)
     } catch {
@@ -169,39 +209,37 @@ export default function InventarioPage() {
                 <thead>
                   <tr>
                     <th>SKU</th>
+                    <th>SKU SAP</th>
                     <th>Descripción</th>
-                    <th>Stock Libre</th>
-                    <th>Bloqueado</th>
-                    <th>Calidad</th>
-                    <th>Total</th>
+                    <th>Físico Real</th>
+                    <th>Sistema (SAP)</th>
+                    <th>Diferencia</th>
                     <th>Días Restantes</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredLiquido.map((r) => {
-                    const stockLibre = parseNumber(r.stock_libre)
+                    const fisicoReal = parseNumber(r.total_fisico_real)
                     const prom = promediosSku.get(r.sku) || 0
-                    const diasRest =
-                      prom > 0 ? stockLibre / prom : null
+                    const diasRest = prom > 0 ? fisicoReal / prom : null
                     const diasLabel =
                       prom > 0 && Number.isFinite(diasRest) ? diasRest.toFixed(1) : '—'
                     const colorClass =
                       prom > 0 && Number.isFinite(diasRest)
                         ? semaforoColor(diasRest, cfg.alerta, cfg.critico)
                         : 'text-gris-texto'
+                    const dif = parseNumber(r.diferencia)
+                    const difColor = dif === 0
+                      ? 'text-gris-texto'
+                      : dif < 0 ? 'text-rojo font-semibold' : 'text-verde-fresco font-semibold'
                     return (
                       <tr key={r.id ?? `${r.sku}-${r.fecha}`}>
                         <td className="font-semibold">{r.sku}</td>
+                        <td className="text-gris-texto">{r.sku_sap ?? '—'}</td>
                         <td>{r.descripcion ?? '—'}</td>
-                        <td>{r.stock_libre ?? '—'}</td>
-                        <td>{r.stock_bloqueado ?? r.bloqueado ?? '—'}</td>
-                        <td>{r.stock_calidad ?? r.calidad ?? '—'}</td>
-                        <td>
-                          {r.total ??
-                            parseNumber(r.stock_libre) +
-                              parseNumber(r.stock_bloqueado ?? r.bloqueado ?? 0) +
-                              parseNumber(r.stock_calidad ?? r.calidad ?? 0)}
-                        </td>
+                        <td className="font-semibold">{r.total_fisico_real ?? '—'}</td>
+                        <td>{r.total_sistema ?? '—'}</td>
+                        <td className={difColor}>{r.diferencia ?? '—'}</td>
                         <td className={colorClass}>{diasLabel}</td>
                       </tr>
                     )
