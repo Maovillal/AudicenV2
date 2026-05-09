@@ -14,6 +14,39 @@ function sumAbs(rows, field) {
   return rows.reduce((acc, r) => acc + Math.abs(parseNumber(r[field])), 0)
 }
 
+// Stock total real = libre + bloqueado + calidad. La regla está documentada
+// en docs/origen_datos.md y se valida en /comprobacion (ver BUG-003).
+function sumStockTotal(rows) {
+  return (rows || []).reduce(
+    (acc, r) => acc + parseNumber(r.stock_libre) + parseNumber(r.stock_bloqueado) + parseNumber(r.stock_calidad),
+    0,
+  )
+}
+
+// El dashboard mostraba la SUMA de todos los snapshots del día (T1 inicio +
+// T1 cierre + T3 cierre = 3× el stock real). Lo correcto es traer solo el
+// snapshot más reciente del día, identificado por el created_at más nuevo.
+async function fetchLatestSnapshot(table, fecha) {
+  const { data: latest } = await supabase
+    .from(table)
+    .select('turno, momento')
+    .eq('fecha', fecha)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!latest) return { rows: [], turno: null, momento: null }
+  const rows = await fetchAllRows((from, to) =>
+    supabase
+      .from(table)
+      .select('stock_libre, stock_bloqueado, stock_calidad')
+      .eq('fecha', fecha)
+      .eq('turno', latest.turno)
+      .eq('momento', latest.momento)
+      .range(from, to)
+  )
+  return { rows, turno: latest.turno, momento: latest.momento }
+}
+
 export default function DashboardPage() {
   const [fecha, setFecha] = useFechaGlobal()
   const [kpiLiquido, setKpiLiquido] = useState(0)
@@ -33,12 +66,11 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const liq = await fetchAllRows((from, to) =>
-        supabase.from('inventario_liquido').select('stock_libre').eq('fecha', fecha).range(from, to)
-      )
-      const env = await fetchAllRows((from, to) =>
-        supabase.from('inventario_envase').select('stock_libre').eq('fecha', fecha).range(from, to)
-      )
+      // Snapshot más reciente del día, no la suma de todos los snapshots.
+      const liq = await fetchLatestSnapshot('inventario_liquido', fecha)
+      const env = await fetchLatestSnapshot('inventario_envase', fecha)
+      // Salidas a rutas y conteo físico sí se suman en el día (son eventos
+      // acumulados, no snapshots de inventario).
       const sal = await fetchAllRows((from, to) =>
         supabase.from('salidas_rutas').select('cantidad').eq('fecha', fecha).range(from, to)
       )
@@ -46,8 +78,9 @@ export default function DashboardPage() {
         supabase.from('conteo_fisico').select('diferencia').eq('fecha', fecha).range(from, to)
       )
 
-      setKpiLiquido(sumField(liq, 'stock_libre'))
-      setKpiEnvase(sumField(env, 'stock_libre'))
+      // Stock total = libre + bloqueado + calidad (no solo libre).
+      setKpiLiquido(sumStockTotal(liq.rows))
+      setKpiEnvase(sumStockTotal(env.rows))
       setKpiCajas(sumField(sal, 'cantidad'))
       setKpiDiff(sumAbs(cf, 'diferencia'))
 
