@@ -16,6 +16,21 @@ import { supabase, fetchAllRows } from '../lib/supabase'
 import { parseNumber } from '@/lib/format'
 import { bebasNeue } from './_app'
 
+// Calcula minutos entre dos horas en formato 'HH:MM' o 'HH:MM:SS'.
+// Maneja cruce de medianoche (si término < inicio, se asume al día siguiente).
+// Devuelve null si alguna hora falta o no se puede parsear.
+function minutosEntreHoras(inicio, termino) {
+  if (!inicio || !termino) return null
+  const partsI = String(inicio).split(':').map((s) => parseFloat(s))
+  const partsT = String(termino).split(':').map((s) => parseFloat(s))
+  if (!Number.isFinite(partsI[0]) || !Number.isFinite(partsT[0])) return null
+  const minI = (partsI[0] || 0) * 60 + (partsI[1] || 0)
+  const minT = (partsT[0] || 0) * 60 + (partsT[1] || 0)
+  let diff = minT - minI
+  if (diff < 0) diff += 24 * 60
+  return diff
+}
+
 export default function NivelServicioPage() {
   const [fecha, setFecha] = useFechaGlobal()
   const [rows, setRows] = useState([])
@@ -45,8 +60,12 @@ export default function NivelServicioPage() {
     load()
   }, [load])
 
+  // Minutos reales = hora_termino - hora_inicio, calculados en pantalla.
+  // Si la columna minutos del archivo trae un valor distinto, lo ignoramos.
   const stats = useMemo(() => {
-    const mins = rows.map((r) => parseNumber(r.minutos))
+    const mins = rows
+      .map((r) => minutosEntreHoras(r.hora_inicio, r.hora_termino))
+      .filter((m) => m != null)
     const avg = mins.length ? mins.reduce((a, b) => a + b, 0) / mins.length : 0
     const dentro = mins.filter((m) => m < objetivo).length
     const pct = mins.length ? (dentro / mins.length) * 100 : 0
@@ -57,7 +76,7 @@ export default function NivelServicioPage() {
     () =>
       rows.map((r) => ({
         ruta: r.ruta ?? '—',
-        minutos: parseNumber(r.minutos),
+        minutos: minutosEntreHoras(r.hora_inicio, r.hora_termino) ?? 0,
       })),
     [rows]
   )
@@ -111,14 +130,14 @@ export default function NivelServicioPage() {
                   </thead>
                   <tbody>
                     {rows.map((r) => {
-                      const m = parseNumber(r.minutos)
-                      const warn = m > objetivo
+                      const m = minutosEntreHoras(r.hora_inicio, r.hora_termino)
+                      const warn = m != null && m > objetivo
                       return (
                         <tr key={r.id ?? `${r.ruta}-${r.hora_inicio}`} className={warn ? 'bg-yellow-100' : ''}>
                           <td className="font-semibold">{r.ruta ?? '—'}</td>
                           <td>{r.hora_inicio ?? r.inicio ?? '—'}</td>
                           <td>{r.hora_termino ?? r.termino ?? '—'}</td>
-                          <td>{r.minutos ?? '—'}</td>
+                          <td>{m != null ? m : '—'}</td>
                           <td>{r.observaciones ?? '—'}</td>
                         </tr>
                       )
