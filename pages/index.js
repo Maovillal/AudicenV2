@@ -53,6 +53,30 @@ async function fetchLatestSnapshot(table, fecha) {
   return { rows, turno: latest.turno, momento: latest.momento }
 }
 
+// KPI Envase del dashboard. Toma el valor más reciente de la fila TOTAL del
+// recuadro de conciliacion_envase para el día. Progresivo:
+//   - T1 inicio:   prefiere fisico_total (físico contado en la mañana)
+//   - T1/T2 cierre: usa sistema_total (Fin SAP del recuadro)
+//   - T2 inicio:   sistema_total (Inicio SAP del T2)
+// Si todavía no hay nada de conciliación: fallback al último snapshot SAP.
+async function computeKpiEnvase(fecha) {
+  const { data: latest } = await supabase
+    .from('conciliacion_envase')
+    .select('sistema_total,fisico_total,turno,momento,created_at')
+    .eq('fecha', fecha)
+    .eq('sku', 'TOTAL')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (latest) {
+    const fisico = parseNumber(latest.fisico_total)
+    const sistema = parseNumber(latest.sistema_total)
+    return fisico || sistema || 0
+  }
+  const env = await fetchLatestSnapshot('inventario_envase', fecha)
+  return sumStockTotal(env.rows)
+}
+
 // KPI Líquido del dashboard. Lógica progresiva según qué se ha subido en el día:
 //   1. Conteo físico (T3 cierre)            → total físico oficial
 //   2. T1 inicio + MB51 2000 disponibles    → Inicio SAP + entradas MB51
@@ -100,13 +124,11 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      // KPI Líquido: lógica progresiva según qué reportes se han subido (ver
-      // computeKpiLiquido para el detalle).
-      const kpiLiquidoVal = await computeKpiLiquido(fecha)
-
-      // Envase: último snapshot de SAP por ahora (pendiente confirmar si
-      // debe pasar a físico de conciliacion_envase).
-      const env = await fetchLatestSnapshot('inventario_envase', fecha)
+      // KPIs líquido y envase: lógica progresiva (ver computeKpi* arriba).
+      const [kpiLiquidoVal, kpiEnvaseVal] = await Promise.all([
+        computeKpiLiquido(fecha),
+        computeKpiEnvase(fecha),
+      ])
 
       // Eventos acumulados del día (no snapshots).
       const sal = await fetchAllRows((from, to) =>
@@ -117,7 +139,7 @@ export default function DashboardPage() {
       )
 
       setKpiLiquido(kpiLiquidoVal)
-      setKpiEnvase(sumStockTotal(env.rows))
+      setKpiEnvase(kpiEnvaseVal)
       setKpiCajas(sumField(sal, 'cantidad'))
       setKpiDiff(sumAbs(cf, 'diferencia'))
 
