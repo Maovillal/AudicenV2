@@ -66,23 +66,28 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      // Snapshot más reciente del día, no la suma de todos los snapshots.
-      const liq = await fetchLatestSnapshot('inventario_liquido', fecha)
+      // Líquido: el KPI muestra el conteo FÍSICO del día (lo real en piso),
+      // no el snapshot de SAP. Suma de total_fisico_real en conteo_fisico
+      // que se llena al cierre del T3 (vertical de líquido).
+      const cfLiq = await fetchAllRows((from, to) =>
+        supabase
+          .from('conteo_fisico')
+          .select('total_fisico_real,diferencia')
+          .eq('fecha', fecha)
+          .range(from, to)
+      )
+      // Envase: por ahora seguimos con el último snapshot de SAP hasta
+      // confirmar de dónde sale el "físico" del envase.
       const env = await fetchLatestSnapshot('inventario_envase', fecha)
-      // Salidas a rutas y conteo físico sí se suman en el día (son eventos
-      // acumulados, no snapshots de inventario).
+      // Salidas a rutas: suma de eventos del día.
       const sal = await fetchAllRows((from, to) =>
         supabase.from('salidas_rutas').select('cantidad').eq('fecha', fecha).range(from, to)
       )
-      const cf = await fetchAllRows((from, to) =>
-        supabase.from('conteo_fisico').select('diferencia').eq('fecha', fecha).range(from, to)
-      )
 
-      // Stock total = libre + bloqueado + calidad (no solo libre).
-      setKpiLiquido(sumStockTotal(liq.rows))
+      setKpiLiquido(sumField(cfLiq, 'total_fisico_real'))
       setKpiEnvase(sumStockTotal(env.rows))
       setKpiCajas(sumField(sal, 'cantidad'))
-      setKpiDiff(sumAbs(cf, 'diferencia'))
+      setKpiDiff(sumAbs(cfLiq, 'diferencia'))
 
       const { data: hlData } = await supabase.rpc('get_hl_stats', { p_fecha: fecha })
       if (hlData?.[0]) {
