@@ -62,17 +62,10 @@ export default function RutasPage() {
     for (const r of rows) {
       const key = r.ruta ?? r.nombre_ruta ?? 'Sin ruta'
       if (!map.has(key)) {
-        map.set(key, {
-          ruta: key,
-          transporte: r.transporte ?? r.tipo_transporte ?? '—',
-          cajas: 0,
-        })
+        map.set(key, { ruta: key, cajas: 0 })
       }
       const g = map.get(key)
       g.cajas += Number(r.cantidad ?? r.cajas ?? 0)
-      if (r.transporte || r.tipo_transporte) {
-        g.transporte = r.transporte ?? r.tipo_transporte ?? g.transporte
-      }
     }
     return Array.from(map.values())
   }, [rows])
@@ -133,7 +126,6 @@ export default function RutasPage() {
                 <thead>
                   <tr>
                     <th>Ruta</th>
-                    <th>Transporte</th>
                     <th>Total Cajas</th>
                     <th>Δ% vs Promedio</th>
                   </tr>
@@ -148,7 +140,6 @@ export default function RutasPage() {
                       <Fragment key={g.ruta}>
                         <tr className="cursor-pointer" onClick={() => toggleExpand(g.ruta)}>
                           <td className="font-semibold text-verde-botella">{g.ruta}</td>
-                          <td>{g.transporte}</td>
                           <td>{g.cajas}</td>
                           <td
                             className={
@@ -164,7 +155,7 @@ export default function RutasPage() {
                         </tr>
                         {open ? (
                           <tr>
-                            <td colSpan={4} className="bg-gris-claro/40">
+                            <td colSpan={3} className="bg-gris-claro/40">
                               <div className="p-4">
                                 <p className="mb-2 text-sm font-bold text-verde-botella">Top 10 SKUs</p>
                                 <div className="overflow-x-auto">
