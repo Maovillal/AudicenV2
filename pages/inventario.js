@@ -25,6 +25,14 @@ async function loadConfigKeys() {
   }
 }
 
+// Formatea con 2 decimales y comas como separador de miles. '—' si no es número.
+function fmt2(v) {
+  if (v == null || v === '') return '—'
+  const n = parseNumber(v)
+  if (!Number.isFinite(n)) return '—'
+  return n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 function semaforoColor(dias, alerta, critico) {
   if (dias === null || dias === undefined || Number.isNaN(dias)) return 'text-gris-texto'
   if (dias > alerta) return 'text-verde-fresco font-bold'
@@ -239,9 +247,9 @@ export default function InventarioPage() {
                         <td className="font-semibold">{r.sku}</td>
                         <td className="text-gris-texto">{r.sku_sap ?? '—'}</td>
                         <td>{r.descripcion ?? '—'}</td>
-                        <td className="font-semibold">{r.total_fisico_real ?? '—'}</td>
-                        <td>{r.total_sistema ?? '—'}</td>
-                        <td className={difColor}>{r.diferencia ?? '—'}</td>
+                        <td className="font-semibold">{fmt2(r.total_fisico_real)}</td>
+                        <td>{fmt2(r.total_sistema)}</td>
+                        <td className={difColor}>{fmt2(r.diferencia)}</td>
                         <td className={colorClass}>{diasLabel}</td>
                       </tr>
                     )
