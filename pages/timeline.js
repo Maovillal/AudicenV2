@@ -24,41 +24,32 @@ function minToHHMM(m) {
 // los minutos de inicio/fin por ruta.
 const FASES = [
   {
-    id: 'armado',
-    label: 'Armado de cargas',
-    color: '#2E9944',
-    bg: 'bg-verde-fresco',
-    descripcion: 'Preparación de cargas (para el día siguiente)',
-    source: 'tiempos_carga',
-    pickStart: (r) => hhmmToMin(r.inicio_carga),
-    pickEnd: (r) => hhmmToMin(r.fin_carga),
+    id: 'armado', label: 'Armado de cargas', color: '#2E9944',
+    descripcion: 'Preparación de cargas (legacy: tiempos_carga)',
   },
   {
-    id: 'embarque',
-    label: 'Embarque',
-    color: '#F5C800',
-    bg: 'bg-dorado',
-    descripcion: 'Carga del producto al camión',
-    source: 'tiempos_carga',
-    pickStart: (r) => hhmmToMin(r.inicio_embarque),
-    pickEnd: (r) => hhmmToMin(r.fin_embarque),
+    id: 'embarque', label: 'Embarque', color: '#F5C800',
+    descripcion: 'Carga del producto al camión (legacy: tiempos_carga)',
   },
   {
-    id: 'ruta',
-    label: 'Salida → Entrada',
-    color: '#1A6B2F',
-    bg: 'bg-verde-campo',
-    descripcion: 'Ruta en la calle (salida hasta retorno)',
-    source: 'nivel_servicio',
-    pickStart: (r) => hhmmToMin(r.hora_inicio),
-    pickEnd: (r) => hhmmToMin(r.hora_termino),
+    id: 'tetra', label: 'Tetra', color: '#0EA5E9',
+    descripcion: 'Operación Tetra (captura por pegado)',
+  },
+  {
+    id: 'rutas', label: 'Salida → Entrada', color: '#1A6B2F',
+    descripcion: 'Ruta en la calle (captura por pegado o nivel_servicio)',
+  },
+  {
+    id: 'liquidacion', label: 'Liquidación', color: '#9333EA',
+    descripcion: 'Liquidación post-retorno (captura por pegado)',
+  },
+  {
+    id: 'fulles', label: 'Atención a fulles', color: '#EA580C',
+    descripcion: 'Camiones full (captura por pegado)',
   },
 ]
 
-const FASES_PENDIENTES = [
-  { id: 'liquidacion', label: 'Liquidación', color: '#9333ea', descripcion: 'Liquidación post-retorno (datos por integrar)' },
-  { id: 'fulles', label: 'Atención a fulles', color: '#ea580c', descripcion: 'Atención a camiones full (datos por integrar)' },
-]
+const FASES_PENDIENTES = []
 
 // Eje del Gantt: cada 2 horas. 13 marcas para 00:00 → 24:00.
 const HORAS_EJE = Array.from({ length: 13 }, (_, i) => i * 2)
@@ -67,25 +58,31 @@ export default function TimelinePage() {
   const [fecha, setFecha] = useFechaGlobal()
   const [tiemposCarga, setTiemposCarga] = useState([])
   const [nivelServicio, setNivelServicio] = useState([])
+  const [tiemposOp, setTiemposOp] = useState([])  // captura por pegado
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [tc, ns] = await Promise.all([
+      const [tc, ns, op] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('tiempos_carga').select('*').eq('fecha', fecha).range(from, to)
         ),
         fetchAllRows((from, to) =>
           supabase.from('nivel_servicio').select('*').eq('fecha', fecha).range(from, to)
         ),
+        fetchAllRows((from, to) =>
+          supabase.from('tiempos_operacion').select('*').eq('fecha', fecha).range(from, to)
+        ),
       ])
       setTiemposCarga(tc)
       setNivelServicio(ns)
+      setTiemposOp(op)
     } catch (e) {
       console.error('[timeline] error:', e)
       setTiemposCarga([])
       setNivelServicio([])
+      setTiemposOp([])
     } finally {
       setLoading(false)
     }
@@ -93,39 +90,62 @@ export default function TimelinePage() {
 
   useEffect(() => { load() }, [load])
 
-  // Combinar las dos fuentes en una estructura por ruta:
-  // { ruta: 'RK1601', armado: {start,end}, embarque: {start,end}, ruta: {start,end} }
+  // Combinar las fuentes en una estructura por ruta. Cada fase guarda {start, end}.
+  // tiempos_carga (legacy) → armado, embarque
+  // nivel_servicio (legacy) → rutas (fallback si no hay captura por pegado)
+  // tiempos_operacion (captura) → todas las fases si están registradas
   const rutasData = useMemo(() => {
     const byRuta = new Map()
 
+    function get(key) {
+      if (!byRuta.has(key)) byRuta.set(key, { ruta: key })
+      return byRuta.get(key)
+    }
+
+    // Legacy: tiempos_carga
     for (const r of tiemposCarga) {
       const key = String(r.ruta || '').trim()
       if (!key) continue
-      if (!byRuta.has(key)) byRuta.set(key, { ruta: key })
-      const acc = byRuta.get(key)
+      const acc = get(key)
       const armadoStart = hhmmToMin(r.inicio_carga)
       const armadoEnd = hhmmToMin(r.fin_carga)
-      const embarqueStart = hhmmToMin(r.inicio_embarque)
-      const embarqueEnd = hhmmToMin(r.fin_embarque)
+      const embStart = hhmmToMin(r.inicio_embarque)
+      const embEnd = hhmmToMin(r.fin_embarque)
       if (armadoStart != null && armadoEnd != null) acc.armado = { start: armadoStart, end: armadoEnd }
-      if (embarqueStart != null && embarqueEnd != null) acc.embarque = { start: embarqueStart, end: embarqueEnd }
+      if (embStart != null && embEnd != null) acc.embarque = { start: embStart, end: embEnd }
     }
 
+    // Legacy: nivel_servicio (fallback para 'rutas' si no se capturó por pegado)
     for (const r of nivelServicio) {
       const key = String(r.ruta || '').trim()
       if (!key) continue
-      if (!byRuta.has(key)) byRuta.set(key, { ruta: key })
-      const acc = byRuta.get(key)
+      const acc = get(key)
       const start = hhmmToMin(r.hora_inicio)
       const end = hhmmToMin(r.hora_termino)
-      if (start != null && end != null) acc.ruta_calle = { start, end }
+      if (start != null && end != null && !acc.rutas) {
+        acc.rutas = { start, end }
+      }
+    }
+
+    // Nuevo: tiempos_operacion (captura por pegado)
+    for (const r of tiemposOp) {
+      const key = String(r.entidad || '').trim()
+      if (!key) continue
+      const acc = get(key)
+      const start = hhmmToMin(r.inicio)
+      const end = hhmmToMin(r.fin)
+      if (start != null && end != null) {
+        acc[r.tipo] = { start, end }
+      }
     }
 
     return [...byRuta.values()].sort((a, b) => a.ruta.localeCompare(b.ruta))
-  }, [tiemposCarga, nivelServicio])
+  }, [tiemposCarga, nivelServicio, tiemposOp])
 
   // Para el resumen
-  const rutasConData = rutasData.filter((r) => r.armado || r.embarque || r.ruta_calle)
+  const rutasConData = rutasData.filter((r) =>
+    FASES.some((f) => r[f.id])
+  )
 
   return (
     <AuthGuard>
@@ -155,13 +175,6 @@ export default function TimelinePage() {
             {FASES.map((f) => (
               <div key={f.id} className="flex items-center gap-2">
                 <div className="w-4 h-4 rounded" style={{ backgroundColor: f.color }} />
-                <span className="font-semibold">{f.label}</span>
-                <span className="text-gris-texto text-xs">— {f.descripcion}</span>
-              </div>
-            ))}
-            {FASES_PENDIENTES.map((f) => (
-              <div key={f.id} className="flex items-center gap-2 opacity-50">
-                <div className="w-4 h-4 rounded border border-dashed" style={{ borderColor: f.color }} />
                 <span className="font-semibold">{f.label}</span>
                 <span className="text-gris-texto text-xs">— {f.descripcion}</span>
               </div>
@@ -200,7 +213,7 @@ export default function TimelinePage() {
                     <div className="w-24 shrink-0 px-3 py-3 text-sm font-semibold text-verde-botella border-r border-gris-claro">
                       {r.ruta}
                     </div>
-                    <div className="flex-1 relative h-12">
+                    <div className="flex-1 relative h-14">
                       {/* Líneas verticales del eje, repetidas en cada fila */}
                       {HORAS_EJE.map((h) => (
                         <div
@@ -210,24 +223,28 @@ export default function TimelinePage() {
                         />
                       ))}
                       {/* Barras de cada fase */}
-                      {FASES.map((f) => {
-                        const fase = f.id === 'ruta' ? r.ruta_calle : r[f.id]
+                      {FASES.map((f, idx) => {
+                        const fase = r[f.id]
                         if (!fase) return null
                         const left = (fase.start / (24 * 60)) * 100
                         const width = Math.max(1, ((fase.end - fase.start) / (24 * 60)) * 100)
+                        // Apilar verticalmente para que no se solapen visualmente cuando
+                        // dos fases tienen rangos coincidentes.
+                        const top = 1 + (idx % 3) * 14  // 3 niveles de stacking
                         return (
                           <div
                             key={f.id}
-                            className="absolute top-1 h-10 rounded text-[10px] text-white font-semibold flex items-center justify-center px-1 shadow-sm"
+                            className="absolute h-3 rounded text-[9px] text-white font-semibold flex items-center justify-center px-1"
                             style={{
+                              top: `${top}px`,
                               left: `${left}%`,
                               width: `${width}%`,
                               backgroundColor: f.color,
-                              minWidth: '24px',
+                              minWidth: '20px',
                             }}
                             title={`${f.label}: ${minToHHMM(fase.start)} → ${minToHHMM(fase.end)} (${fase.end - fase.start} min)`}
                           >
-                            {width > 6 ? `${minToHHMM(fase.start)}-${minToHHMM(fase.end)}` : ''}
+                            {width > 8 ? `${minToHHMM(fase.start)}-${minToHHMM(fase.end)}` : ''}
                           </div>
                         )
                       })}
@@ -245,22 +262,21 @@ export default function TimelinePage() {
                 <thead>
                   <tr>
                     <th>Ruta</th>
-                    <th>Armado</th>
-                    <th>Embarque</th>
-                    <th>Salida → Entrada</th>
-                    <th>Liquidación</th>
-                    <th>Atención fulles</th>
+                    {FASES.map((f) => <th key={f.id}>{f.label}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {rutasConData.map((r) => (
                     <tr key={r.ruta}>
                       <td className="font-semibold text-verde-botella">{r.ruta}</td>
-                      <td>{r.armado ? `${minToHHMM(r.armado.start)}–${minToHHMM(r.armado.end)}` : '—'}</td>
-                      <td>{r.embarque ? `${minToHHMM(r.embarque.start)}–${minToHHMM(r.embarque.end)}` : '—'}</td>
-                      <td>{r.ruta_calle ? `${minToHHMM(r.ruta_calle.start)}–${minToHHMM(r.ruta_calle.end)}` : '—'}</td>
-                      <td className="text-gris-texto italic text-xs">pendiente</td>
-                      <td className="text-gris-texto italic text-xs">pendiente</td>
+                      {FASES.map((f) => {
+                        const fase = r[f.id]
+                        return (
+                          <td key={f.id} className="text-sm">
+                            {fase ? `${minToHHMM(fase.start)}–${minToHHMM(fase.end)}` : '—'}
+                          </td>
+                        )
+                      })}
                     </tr>
                   ))}
                 </tbody>
