@@ -15,6 +15,14 @@ import { supabase, fetchAllRows } from '../lib/supabase'
 import { parseNumber } from '@/lib/format'
 import { bebasNeue } from './_app'
 
+// Formatea con 2 decimales y separador de miles. '—' si no es número.
+function fmt2(v) {
+  if (v == null || v === '') return '—'
+  const n = parseNumber(v)
+  if (!Number.isFinite(n)) return '—'
+  return n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 export default function MermaPage() {
   const [fecha, setFecha] = useFechaGlobal()
   const [allRows, setAllRows] = useState([])
@@ -121,12 +129,12 @@ export default function MermaPage() {
                         <tr key={r.id ?? `${r.sku}-${r.fecha}`} className={neg ? 'bg-[#FEE2E2]' : ''}>
                           <td className="font-semibold">{r.sku}</td>
                           <td>{r.descripcion ?? '—'}</td>
-                          <td>{r.total_fisico ?? '—'}</td>
-                          <td>{r.total_sistema ?? '—'}</td>
-                          <td>{r.diferencia ?? '—'}</td>
-                          <td>{r.merma_operativa ?? r.merma_op ?? '—'}</td>
-                          <td>{r.merma_cm ?? '—'}</td>
-                          <td>{r.merma_dora ?? '—'}</td>
+                          <td>{fmt2(r.total_fisico)}</td>
+                          <td>{fmt2(r.total_sistema)}</td>
+                          <td>{fmt2(r.diferencia)}</td>
+                          <td>{fmt2(r.merma_operativa ?? r.merma_op)}</td>
+                          <td>{fmt2(r.merma_cm)}</td>
+                          <td>{fmt2(r.merma_dora)}</td>
                         </tr>
                       )
                     })}
