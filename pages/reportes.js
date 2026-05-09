@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { format, parseISO, subDays, startOfMonth } from 'date-fns'
+import ReactMarkdown from 'react-markdown'
 import AuthGuard from '@/components/AuthGuard'
 import Layout from '@/components/Layout'
 import { supabase, fetchAllRows } from '@/lib/supabase'
@@ -51,6 +52,12 @@ export default function ReportesPage() {
   const [periodo, setPeriodo] = useState('hoy')
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState(null)
+
+  // Estado del análisis con IA (separado del resto)
+  const [aiText, setAiText] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState('')
+  const [aiUsage, setAiUsage] = useState(null)
 
   const { desde, hasta } = useMemo(() => rangoFechas(fecha, periodo), [fecha, periodo])
 
@@ -127,6 +134,58 @@ export default function ReportesPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Reset el análisis IA cuando cambia el período (los insights aplicaban a otro rango)
+  useEffect(() => {
+    setAiText('')
+    setAiError('')
+    setAiUsage(null)
+  }, [desde, hasta])
+
+  const generarAnalisisIA = useCallback(async () => {
+    setAiLoading(true)
+    setAiError('')
+    setAiText('')
+    setAiUsage(null)
+    try {
+      const resp = await fetch('/api/insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ periodo, desde, hasta }),
+      })
+      if (!resp.ok || !resp.body) {
+        const errBody = await resp.json().catch(() => ({}))
+        throw new Error(errBody.error || `HTTP ${resp.status}`)
+      }
+      const reader = resp.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        // Parsear eventos SSE separados por línea en blanco
+        const events = buffer.split('\n\n')
+        buffer = events.pop() || ''  // último puede ser parcial
+        for (const ev of events) {
+          if (!ev.startsWith('data: ')) continue
+          const payload = ev.slice(6)
+          try {
+            const obj = JSON.parse(payload)
+            if (obj.text) setAiText((prev) => prev + obj.text)
+            if (obj.error) setAiError(obj.error)
+            if (obj.done && obj.usage) setAiUsage(obj.usage)
+          } catch {
+            // ignorar líneas malformadas
+          }
+        }
+      }
+    } catch (e) {
+      setAiError(e.message || String(e))
+    } finally {
+      setAiLoading(false)
+    }
+  }, [periodo, desde, hasta])
+
   return (
     <AuthGuard>
       <Layout>
@@ -181,6 +240,60 @@ export default function ReportesPage() {
                 <KpiCard label="Ingreso de envase" value={data.kpiIngreso} />
                 <KpiCard label="Mermas (acum)" value={data.kpiMermas} variant={data.kpiMermas > 0 ? 'warn' : 'ok'} />
                 <KpiCard label="Anomalías detectadas" value={data.kpiAnomalias} variant={data.kpiAnomalias > 0 ? 'danger' : 'ok'} />
+              </section>
+
+              {/* Análisis con IA */}
+              <section className="bg-blanco rounded-lg shadow-card p-5">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 mb-4">
+                  <div>
+                    <h2 className={`${bebasNeue.className} text-2xl text-verde-botella`}>
+                      Análisis con IA
+                    </h2>
+                    <p className="text-gris-texto text-sm mt-1">
+                      Insights más profundos que los KPIs: anomalías sutiles, oportunidades, riesgos.
+                    </p>
+                  </div>
+                  <button
+                    onClick={generarAnalisisIA}
+                    disabled={aiLoading}
+                    className={`rounded-lg px-4 py-2 text-sm font-bold transition-colors duration-150 whitespace-nowrap ${
+                      aiLoading
+                        ? 'bg-gris-claro text-gris-texto cursor-not-allowed'
+                        : 'bg-verde-botella text-blanco hover:bg-verde-fresco'
+                    }`}
+                  >
+                    {aiLoading ? 'Generando…' : aiText ? 'Regenerar' : 'Generar análisis'}
+                  </button>
+                </div>
+
+                {aiError && (
+                  <div className="bg-rojo/10 border border-rojo text-rojo rounded p-3 text-sm mb-3">
+                    Error: {aiError}
+                  </div>
+                )}
+
+                {aiText && (
+                  <div className="prose prose-sm max-w-none
+                                  prose-headings:text-verde-botella prose-headings:font-bold
+                                  prose-h2:text-lg prose-h2:mt-4 prose-h2:mb-2
+                                  prose-p:text-negro prose-p:leading-relaxed
+                                  prose-strong:text-verde-botella
+                                  prose-ul:list-disc prose-ul:pl-5 prose-li:my-1">
+                    <ReactMarkdown>{aiText}</ReactMarkdown>
+                  </div>
+                )}
+
+                {!aiText && !aiLoading && !aiError && (
+                  <p className="text-gris-texto text-sm italic">
+                    Click en "Generar análisis" para que la IA revise los datos del período seleccionado y produzca un reporte ejecutivo con anomalías, oportunidades y riesgos.
+                  </p>
+                )}
+
+                {aiUsage && (
+                  <p className="text-xs text-gris-texto mt-3">
+                    Tokens: input {aiUsage.input} · cache leído {aiUsage.cache_read} · cache escrito {aiUsage.cache_write} · output {aiUsage.output}
+                  </p>
+                )}
               </section>
 
               {/* Reportes faltantes */}
