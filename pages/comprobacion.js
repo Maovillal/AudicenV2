@@ -193,24 +193,50 @@ export default function ComprobacionPage() {
         rhsVal: s.envT1Ini,
         hasData: has(data.concT1Ini) && has(data.envT1Ini),
       }),
-      check({
-        id: 5,
-        formula: 'Cierre 2000 T1 = Inicio 2000 T1 + MB51 2000',
-        lhsLabel: 'Inv. Líquido T1 Cierre',
-        lhsVal: s.liqT1Cie,
-        rhsLabel: 'T1 Inicio + MB51 2000',
-        rhsVal: s.liqT1Ini + s.mb51_2000,
-        hasData: has(data.liqT1Cie) && has(data.liqT1Ini) && has(data.mb51_2000),
-      }),
-      check({
-        id: 6,
-        formula: 'Cierre 2010 T1 = Inicio 2010 T1 − MB51 2010',
-        lhsLabel: 'Inv. Envase T1 Cierre',
-        lhsVal: s.envT1Cie,
-        rhsLabel: 'T1 Inicio − MB51 2010',
-        rhsVal: s.envT1Ini - s.mb51_2010,
-        hasData: has(data.envT1Cie) && has(data.envT1Ini) && has(data.mb51_2010),
-      }),
+      // Check 5 — Cierre 2000 T1 vs Inicio 2000 T1.
+      // Si llegó MB51 2000 se suma al inicio. Si no llegó (día sin movimientos),
+      // se asume movimiento=0 y se compara directo Cierre == Inicio.
+      check(has(data.mb51_2000)
+        ? {
+            id: 5,
+            formula: 'Cierre 2000 T1 = Inicio 2000 T1 + MB51 2000',
+            lhsLabel: 'Inv. Líquido T1 Cierre',
+            lhsVal: s.liqT1Cie,
+            rhsLabel: 'T1 Inicio + MB51 2000',
+            rhsVal: s.liqT1Ini + s.mb51_2000,
+            hasData: has(data.liqT1Cie) && has(data.liqT1Ini),
+          }
+        : {
+            id: 5,
+            formula: 'Cierre 2000 T1 = Inicio 2000 T1 (sin MB51 — día sin movimientos)',
+            lhsLabel: 'Inv. Líquido T1 Cierre',
+            lhsVal: s.liqT1Cie,
+            rhsLabel: 'T1 Inicio',
+            rhsVal: s.liqT1Ini,
+            hasData: has(data.liqT1Cie) && has(data.liqT1Ini),
+          }
+      ),
+      // Check 6 — Cierre 2010 T1 vs Inicio 2010 T1, mismo fallback.
+      check(has(data.mb51_2010)
+        ? {
+            id: 6,
+            formula: 'Cierre 2010 T1 = Inicio 2010 T1 − MB51 2010',
+            lhsLabel: 'Inv. Envase T1 Cierre',
+            lhsVal: s.envT1Cie,
+            rhsLabel: 'T1 Inicio − MB51 2010',
+            rhsVal: s.envT1Ini - s.mb51_2010,
+            hasData: has(data.envT1Cie) && has(data.envT1Ini),
+          }
+        : {
+            id: 6,
+            formula: 'Cierre 2010 T1 = Inicio 2010 T1 (sin MB51 — día sin movimientos)',
+            lhsLabel: 'Inv. Envase T1 Cierre',
+            lhsVal: s.envT1Cie,
+            rhsLabel: 'T1 Inicio',
+            rhsVal: s.envT1Ini,
+            hasData: has(data.envT1Cie) && has(data.envT1Ini),
+          }
+      ),
       check({
         id: 7,
         formula: 'Cierre Conciliación Envase T1 = Cierre 2010 T1',
