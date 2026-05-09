@@ -46,8 +46,14 @@ export default function MermaPage() {
     load()
   }, [load])
 
+  // Filtramos por filas con merma > 0 (la página ahora se enfoca solo en mermas).
   const rows = useMemo(
-    () => allRows.filter((r) => parseNumber(r.diferencia) !== 0),
+    () => allRows.filter((r) => {
+      const op = parseNumber(r.merma_operativa ?? r.merma_op)
+      const cm = parseNumber(r.merma_cm)
+      const dora = parseNumber(r.merma_dora)
+      return op > 0 || cm > 0 || dora > 0
+    }),
     [allRows]
   )
 
@@ -114,30 +120,21 @@ export default function MermaPage() {
                     <tr>
                       <th>SKU</th>
                       <th>Descripción</th>
-                      <th>Físico</th>
-                      <th>Sistema</th>
-                      <th>Diferencia</th>
                       <th>Merma Op.</th>
                       <th>Merma CM</th>
                       <th>Merma DORA</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r) => {
-                      const neg = parseNumber(r.diferencia) < 0
-                      return (
-                        <tr key={r.id ?? `${r.sku}-${r.fecha}`} className={neg ? 'bg-[#FEE2E2]' : ''}>
-                          <td className="font-semibold">{r.sku}</td>
-                          <td>{r.descripcion ?? '—'}</td>
-                          <td>{fmt2(r.total_fisico)}</td>
-                          <td>{fmt2(r.total_sistema)}</td>
-                          <td>{fmt2(r.diferencia)}</td>
-                          <td>{fmt2(r.merma_operativa ?? r.merma_op)}</td>
-                          <td>{fmt2(r.merma_cm)}</td>
-                          <td>{fmt2(r.merma_dora)}</td>
-                        </tr>
-                      )
-                    })}
+                    {rows.map((r) => (
+                      <tr key={r.id ?? `${r.sku}-${r.fecha}`}>
+                        <td className="font-semibold">{r.sku}</td>
+                        <td>{r.descripcion ?? '—'}</td>
+                        <td>{fmt2(r.merma_operativa ?? r.merma_op)}</td>
+                        <td>{fmt2(r.merma_cm)}</td>
+                        <td>{fmt2(r.merma_dora)}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
