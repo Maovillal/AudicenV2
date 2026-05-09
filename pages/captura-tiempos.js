@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useFechaGlobal } from '@/lib/useFecha'
 import AuthGuard from '@/components/AuthGuard'
 import Layout from '@/components/Layout'
@@ -122,6 +122,26 @@ export default function CapturaTiemposPage() {
   const [saving, setSaving] = useState(false)
   const [savedCount, setSavedCount] = useState(null)
   const [error, setError] = useState('')
+  const [existingCount, setExistingCount] = useState(0)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // Cuántos registros ya hay guardados para esta (fecha, tipo) — para mostrar
+  // el botón de eliminar solo cuando tenga sentido.
+  const refreshExisting = useCallback(async () => {
+    try {
+      const { count } = await supabase
+        .from('tiempos_operacion')
+        .select('id', { count: 'exact', head: true })
+        .eq('fecha', fecha)
+        .eq('tipo', tipo)
+      setExistingCount(count || 0)
+    } catch {
+      setExistingCount(0)
+    }
+  }, [fecha, tipo])
+
+  useEffect(() => { refreshExisting() }, [refreshExisting])
 
   // Re-parsear cada vez que cambia lo pegado o el tipo
   const parsed = useMemo(() => parsePastedTSV(pasted), [pasted])
@@ -156,12 +176,33 @@ export default function CapturaTiemposPage() {
       if (insErr) throw insErr
 
       setSavedCount(mapping.records.length)
+      refreshExisting()
     } catch (e) {
       setError(e.message || String(e))
     } finally {
       setSaving(false)
     }
-  }, [mapping, fecha, tipo])
+  }, [mapping, fecha, tipo, refreshExisting])
+
+  const eliminar = useCallback(async () => {
+    setDeleting(true)
+    setError('')
+    try {
+      const { error: delErr } = await supabase
+        .from('tiempos_operacion')
+        .delete()
+        .eq('fecha', fecha)
+        .eq('tipo', tipo)
+      if (delErr) throw delErr
+      setSavedCount(null)
+      setConfirmDelete(false)
+      refreshExisting()
+    } catch (e) {
+      setError(e.message || String(e))
+    } finally {
+      setDeleting(false)
+    }
+  }, [fecha, tipo, refreshExisting])
 
   const limpiar = () => {
     setPasted('')
@@ -223,6 +264,45 @@ export default function CapturaTiemposPage() {
               Tiempos en formato HH:MM o HH:MM:SS.
             </p>
           </div>
+
+          {/* Banner de registros existentes + botón eliminar (cuando aplica) */}
+          {existingCount > 0 && (
+            <div className="bg-ambar/15 border-l-4 border-ambar p-4 rounded flex items-center justify-between gap-3">
+              <p className="text-sm">
+                Ya hay <strong>{existingCount}</strong> registro{existingCount !== 1 ? 's' : ''} guardado{existingCount !== 1 ? 's' : ''} de{' '}
+                <strong>{def.label}</strong> en <strong>{fecha}</strong>.
+                {' '}Pegar nuevos datos los reemplaza. Si te equivocaste de fecha, elimínalos primero.
+              </p>
+              {confirmDelete ? (
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={eliminar}
+                    disabled={deleting}
+                    className={`rounded-lg px-3 py-2 text-xs font-bold ${
+                      deleting ? 'bg-gris-claro text-gris-texto cursor-not-allowed'
+                        : 'bg-rojo text-blanco hover:opacity-90'
+                    }`}
+                  >
+                    {deleting ? 'Eliminando…' : 'Sí, eliminar'}
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    disabled={deleting}
+                    className="rounded-lg border border-gris-claro px-3 py-2 text-xs font-bold text-gris-texto hover:bg-gris-claro"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="shrink-0 rounded-lg border border-rojo px-3 py-2 text-xs font-bold text-rojo hover:bg-rojo hover:text-blanco"
+                >
+                  Eliminar
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Textarea de paste */}
           <div className="bg-blanco rounded-lg shadow-card p-4">
