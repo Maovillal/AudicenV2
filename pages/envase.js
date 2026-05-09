@@ -148,7 +148,7 @@ export default function EnvasePage() {
                         <tr key={r.id ?? `${r.ruta}-${r.fecha}`}>
                           <td className="font-semibold">{r.ruta ?? '—'}</td>
                           <td>{r.repartidor ?? '—'}</td>
-                          <td>{r.envase_recibido ?? r.envase ?? '—'}</td>
+                          <td>{r.env_rec ?? r.envase_recibido ?? r.envase ?? '—'}</td>
                           <td>{r.porcentaje ?? r.pct ?? '—'}</td>
                         </tr>
                       ))}
