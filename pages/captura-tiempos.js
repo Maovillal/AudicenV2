@@ -13,6 +13,12 @@ const TIPOS = {
     entidadLabel: 'Ruta / Identificador',
     aliases: { entidad: ['ruta', 'rk', 'identificador', 'tetra'] },
   },
+  embarque: {
+    label: 'Embarque',
+    descripcion: 'Carga del producto al camión',
+    entidadLabel: 'Ruta',
+    aliases: { entidad: ['ruta', 'rk', 'identificador'] },
+  },
   fulles: {
     label: 'Fulles',
     descripcion: 'Atención a camiones full',
