@@ -254,14 +254,18 @@ def organize_path(filename: str, fecha: Optional[date], turno: Optional[int]) ->
 
 # --- Loop principal --------------------------------------------------------
 
-def parse_file(tipo: str, path: Path, almacen_hint: Optional[int] = None) -> list[dict]:
-    """Dispatcher de parsers según el tipo clasificado."""
+def parse_file(tipo: str, path: Path, fecha: date):
+    """Dispatcher de parsers según el tipo clasificado.
+
+    Devuelve list[dict] para SAP (uno por SKU) o dict (con sub-dicts t1, t2)
+    para conciliación. El mapper en supabase_client maneja cada forma.
+    """
     if tipo == "sap_2000":
         return parse_sap(path, almacen_hint=2000)
     if tipo == "sap_2010":
         return parse_sap(path, almacen_hint=2010)
     if tipo == "conciliacion_envase":
-        return parse_conciliacion(path)
+        return parse_conciliacion(path, fecha)
     raise ValueError(f"Sin parser para tipo: {tipo}")
 
 
@@ -343,7 +347,7 @@ def process_message(service, msg_id: str, label_id: str) -> dict:
             continue
 
         try:
-            parsed = parse_file(cls.tipo, path)
+            parsed = parse_file(cls.tipo, path, fecha)
             inserted = upload_records(cls.tipo, parsed, fecha, cls.turno, cls.momento)
             log_upload(cls.tipo, inserted, fecha, cls.turno, cls.momento)
             summary["uploaded_rows"] += inserted

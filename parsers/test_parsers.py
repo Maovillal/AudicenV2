@@ -45,39 +45,39 @@ def _make_synthetic_sap_xls(path: Path, almacen: int = 2000) -> None:
 
 
 def _make_synthetic_conciliacion_xlsx(path: Path) -> None:
+    """
+    Genera un .xlsx que imita la estructura real del archivo de conciliación:
+    - Varias pestañas por fecha (dd.mm.yyyy)
+    - Pestañas extra al final ('Conteo 1') que el parser debe IGNORAR
+    - Cada pestaña con dos recuadros (T1 y T2) en cols F-G abajo
+    """
     wb = openpyxl.Workbook()
-    # Simula varias pestañas viejas; solo la última debe leerse.
-    wb.active.title = "01.05.2026"
-    wb.active["A1"] = "datos viejos"
-    last = wb.create_sheet("07.05.2026")
+    wb.active.title = "07.05.2026"
+    wb.active["A1"] = "datos del 7-may"
 
-    # Algunas filas de preámbulo y luego el header en la fila 7 (como dice CLAUDE.md).
-    last["A1"] = "Conciliación de Envase"
-    last["A3"] = "Fecha: 07/05/2026"
-    last["A7"] = "Presentacion"
-    last["B7"] = "SKU"
-    last["C7"] = "Descripcion"
-    last["D7"] = "Tarimas Comp"
-    last["E7"] = "Restos"
-    last["F7"] = "Total"
+    # Pestaña del 8-may con los dos recuadros poblados.
+    target = wb.create_sheet("08.05.2026")
 
-    rows = [
-        ("Caguama x77",  "200001", "CARTA BLANCA CAG 12/940",   3,  10, None),
-        ("Cuartito x171","200002", "TECATE CUARTO 24/250",      5,  20, None),
-        ("Media x128",   "200003", "INDIO MEDIA 24/325",        2,   0, 256),
-        ("Bohemia x180", "200004", "BOHEMIA 24/355",            1,  50, None),
-    ]
-    for i, r in enumerate(rows, start=8):
-        for j, val in enumerate(r):
-            last.cell(row=i, column=j + 1, value=val)
+    # Recuadro T1 (cols F-G, filas 35-38) — como el archivo real.
+    target["F35"] = "T1"
+    target["F36"] = "Fisico";     target["G36"] = 9514
+    target["F37"] = "Fin SAP";    target["G37"] = 9514
+    target["F38"] = "Diferencia"; target["G38"] = 0
 
-    # Sección de resumen — el parser debe detenerse aquí.
-    last["A14"] = "Fisico"
-    last["B14"] = 1234
-    last["A15"] = "Sistema"
-    last["B15"] = 1230
-    last["A16"] = "Diferencia"
-    last["B16"] = 4
+    # Recuadro T2 — pegado abajo. Sin terminator, T1 jalaría el 'Diferencia' de T2.
+    target["F40"] = "T2"
+    target["F41"] = "Inicio SAP";     target["G41"] = 9514
+    target["F42"] = "Ingreso envase"; target["G42"] = 0
+    target["F43"] = "RUTAS";          target["G43"] = None
+    target["F44"] = "Merma";          target["G44"] = None
+    target["F45"] = "Fin SAP";        target["G45"] = None
+    target["F46"] = "Diferencia";     target["G46"] = 9514
+
+    # Pestañas extra al final que el parser DEBE ignorar.
+    wb.create_sheet("Hoja2")
+    extra = wb.create_sheet("Conteo 1")
+    extra["F1"] = "T1"
+    extra["F2"] = "Fisico"; extra["G2"] = 99999  # valor trampa
 
     wb.save(path)
 
@@ -149,27 +149,39 @@ def test_parse_sap() -> None:
 
 
 def test_parse_conciliacion() -> None:
+    """Valida que parse_conciliacion encuentra la pestaña por fecha y lee los dos recuadros."""
+    from datetime import date as _date
+
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "synthetic_conciliacion.xlsx"
         _make_synthetic_conciliacion_xlsx(path)
-        rows = parse_conciliacion(path)
+        result = parse_conciliacion(path, _date(2026, 5, 8))
 
-    assert len(rows) == 4, f"esperaba 4 filas (resumen ignorado), obtuve {len(rows)}"
-    by_sku = {r["sku"]: r for r in rows}
+    # T1: ignora la trampa en la pestaña 'Conteo 1'; solo toma de '08.05.2026'.
+    assert result["t1"]["fisico"] == 9514, f"T1 fisico: {result}"
+    assert result["t1"]["fin_sap"] == 9514, f"T1 fin_sap (no debe contaminarse con T2): {result}"
+    assert result["t1"]["diferencia"] == 0, f"T1 diferencia (no debe ser la de T2): {result}"
 
-    r1 = by_sku["200001"]
-    assert r1["presentacion"] == "Caguama x77"
-    assert r1["factor"] == 77
-    assert r1["tarimas_completas"] == 3
-    assert r1["restos"] == 10
-    # 3 * 77 + 10 = 241 (computado porque la fila no traía Total).
-    assert r1["total_cajas"] == 241, f"total computado: {r1}"
+    # T2: lee independiente sin sobreescribir nada de T1.
+    assert result["t2"]["inicio_sap"] == 9514
+    assert result["t2"]["ingreso_envase"] == 0
+    assert result["t2"]["rutas"] is None
+    assert result["t2"]["merma"] is None
+    assert result["t2"]["fin_sap"] is None
+    assert result["t2"]["diferencia"] == 9514
 
-    r3 = by_sku["200003"]
-    assert r3["factor"] == 128
-    assert r3["total_cajas"] == 256, "Total venía en el archivo, no se debe sobrescribir"
+    # Pestaña inexistente debe levantar error claro.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "synthetic_conciliacion.xlsx"
+        _make_synthetic_conciliacion_xlsx(path)
+        try:
+            parse_conciliacion(path, _date(2099, 12, 31))
+        except ValueError as e:
+            assert "31.12.2099" in str(e)
+        else:
+            raise AssertionError("Debió levantar ValueError por pestaña ausente")
 
-    print(f"  [OK] parse_conciliacion: {len(rows)} filas, resumen ignorado, factor extraído")
+    print("  [OK] parse_conciliacion: pestaña por fecha, dos recuadros sin contaminación")
 
 
 def test_parse_email_subject() -> None:

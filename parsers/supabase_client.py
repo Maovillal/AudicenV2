@@ -117,60 +117,74 @@ _CONCILIACION_KEYS = (
     "factor", "total",
     "tarimas_comp_t1", "restos_t1",
     "tarimas_comp_t2", "restos_t2",
-    "fisico_total",
+    "fisico_total", "sistema_total", "diferencia_total",
 )
 
 
 def _conciliacion_row(**values) -> dict:
     """Garantiza que todas las filas tengan las mismas llaves (PostgREST lo exige)."""
-    return {k: values.get(k) for k in _CONCILIACION_KEYS}
+    base = {k: None for k in _CONCILIACION_KEYS}
+    base.update(values)
+    # presentacion es NOT NULL en el schema.
+    if base.get("presentacion") is None:
+        base["presentacion"] = ""
+    return base
 
 
-def _to_conciliacion_records(parsed_rows: list[dict], fecha: date, turno: int, momento: str) -> list[dict]:
+def _to_conciliacion_records(parsed: dict, fecha: date, turno: int, momento: str) -> list[dict]:
     """
-    Traduce salida de parse_conciliacion → filas de conciliacion_envase.
+    Traduce salida de parse_conciliacion (dict con sub-dicts t1 y t2) → una
+    fila de conciliacion_envase con los totales del recuadro correspondiente
+    al turno + momento del correo.
 
-    El schema de V2 separa tarimas/restos por turno (t1 vs t2). Llenamos
-    el par correspondiente al turno actual y dejamos el otro en None.
-    También agregamos una fila TOTAL con fisico_total = suma de los
-    total_cajas, para que el dashboard que ya existe siga viendo el
-    agregado.
+    Reglas (validadas con el supervisor 2026-05-08):
+    - INICIO_T1 / CIERRE_T1: la celda Fisico del recuadro T1 se sobrescribe
+      entre mañana y tarde. El subject distingue qué snapshot es. Guardamos
+      Fisico, Fin SAP y Diferencia tal como están en el archivo en ese
+      momento.
+    - INICIO_T2: solo el Inicio SAP del recuadro T2 está poblado.
+    - CIERRE_T2: el Fin SAP y la Diferencia del recuadro T2 ya están
+      poblados. El Fisico de T2 vive en otro Excel (queda None aquí).
+
+    Las filas por SKU y la tabla auxiliar de movimientos están fuera de
+    scope por ahora.
     """
     fecha_str = fecha.isoformat() if isinstance(fecha, date) else fecha
-    out: list[dict] = []
-    suma_total = 0
-    for r in parsed_rows:
-        total_cajas = r.get("total_cajas") or 0
-        suma_total += int(total_cajas)
-        kwargs = {
-            "fecha": fecha_str,
-            "turno": turno,
-            "momento": momento,
-            # presentacion es NOT NULL en el schema; el archivo a veces la deja vacía.
-            "presentacion": r.get("presentacion") or "",
-            "sku": r["sku"],
-            "descripcion": r.get("descripcion"),
-            "factor": r.get("factor"),
-            "total": total_cajas,
-        }
-        if turno == 1:
-            kwargs["tarimas_comp_t1"] = r.get("tarimas_completas") or 0
-            kwargs["restos_t1"] = r.get("restos") or 0
-        elif turno == 2:
-            kwargs["tarimas_comp_t2"] = r.get("tarimas_completas") or 0
-            kwargs["restos_t2"] = r.get("restos") or 0
-        out.append(_conciliacion_row(**kwargs))
+    t1 = parsed.get("t1", {}) or {}
+    t2 = parsed.get("t2", {}) or {}
 
-    # Fila agregada (mantiene el comportamiento histórico de V2).
-    out.append(_conciliacion_row(
+    base_fields = dict(
         fecha=fecha_str,
         turno=turno,
         momento=momento,
-        presentacion="Fin SAP",
+        presentacion="Recuadro Totales",
         sku="TOTAL",
-        fisico_total=suma_total or None,
-    ))
-    return out
+    )
+
+    if turno == 1:
+        return [_conciliacion_row(
+            **base_fields,
+            fisico_total=t1.get("fisico"),
+            sistema_total=t1.get("fin_sap"),
+            diferencia_total=t1.get("diferencia"),
+        )]
+
+    if turno == 2:
+        if momento == "inicio":
+            return [_conciliacion_row(
+                **base_fields,
+                sistema_total=t2.get("inicio_sap"),
+            )]
+        # cierre
+        return [_conciliacion_row(
+            **base_fields,
+            # fisico_total para T2 cierre vive en otro Excel; queda None
+            sistema_total=t2.get("fin_sap"),
+            diferencia_total=t2.get("diferencia"),
+        )]
+
+    # Turno desconocido: una fila vacía marcadora.
+    return [_conciliacion_row(**base_fields)]
 
 
 # --- Dispatch público ------------------------------------------------------

@@ -1,186 +1,190 @@
 """
 Parser para el archivo de conciliación de envase (.xlsx).
 
-El archivo tiene 518+ pestañas (una por día). Solo se lee la ÚLTIMA pestaña,
-que corresponde al conteo más reciente. La primera fila que contiene los
-encabezados ("Presentacion", "SKU", "Descripcion", etc.) puede no estar en
-la fila 1 — buscamos la fila de header dinámicamente.
+El archivo tiene 500+ pestañas. Por convención del supervisor, hay UNA pestaña
+por día con nombre dd.mm.yyyy (ej. "08.05.2026"). Pueden existir pestañas
+extra al final como "Conteo 1", "Hoja2", etc., pero las ignoramos — el parser
+busca específicamente la pestaña que coincide con la fecha del correo.
 
-Salida: lista de dicts con
-    sku, descripcion, presentacion, tarimas_completas, restos, factor, total_cajas
+Cada pestaña tiene dos recuadros pequeños con los totales que importan para
+la auditoría:
+
+Recuadro T1:
+    Fisico       <valor>     ← se sobrescribe entre T1 inicio (mañana) y
+    Fin SAP      <valor>       T1 cierre (tarde, después de 12:00). El subject
+    Diferencia   <valor>       del correo distingue cuándo se capturó.
+
+Recuadro T2:
+    Inicio SAP        <valor>
+    Ingreso envase    <valor>
+    RUTAS             <valor>
+    Merma             <valor>
+    Fin SAP           <valor>
+    Diferencia        <valor>
+
+El parser solo extrae estos valores. Las filas por SKU en la parte superior
+y la tabla auxiliar "INGRESO ENVASE T2" están fuera de scope (se podrán
+agregar más adelante).
+
+Salida:
+    {
+        "t1": {"fisico": <num|None>, "fin_sap": <num|None>, "diferencia": <num|None>},
+        "t2": {"inicio_sap": ..., "ingreso_envase": ..., "rutas": ...,
+               "merma": ..., "fin_sap": ..., "diferencia": ...},
+    }
+Si una celda viene vacía, el valor es None.
 """
 
 from __future__ import annotations
 
 import re
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
 import openpyxl
 
 
-# Tokens de header que pueden aparecer (incluye typos vistos en archivos reales).
-HEADER_TOKENS = {
-    "presentacion": "presentacion",
-    "sku": "sku",
-    "descripcion": "descripcion",
-    "descrpcion": "descripcion",
-    "tarimas_comp": "tarimas_completas",
-    "tarimas_completas": "tarimas_completas",
-    "restos": "restos",
-    "total_comp": "total_completas",
-    "total": "total_cajas",
+# Etiqueta esperada en el archivo  →  llave de salida del parser.
+T1_FIELDS = {
+    "fisico": "Fisico",
+    "fin_sap": "Fin SAP",
+    "diferencia": "Diferencia",
 }
 
-# Tokens que marcan el inicio de la sección de resumen — al verlos, dejamos de leer.
-SUMMARY_TOKENS = {"fisico", "sistema", "diferencia"}
+T2_FIELDS = {
+    "inicio_sap": "Inicio SAP",
+    "ingreso_envase": "Ingreso envase",
+    "rutas": "RUTAS",
+    "merma": "Merma",
+    "fin_sap": "Fin SAP",
+    "diferencia": "Diferencia",
+}
 
 
-def _norm_cell(v) -> str:
-    if v is None:
-        return ""
-    return re.sub(r"\s+", "_", str(v).strip().lower())
+def _norm(v) -> str:
+    """Normaliza para matching: minúsculas, espacios colapsados."""
+    return re.sub(r"\s+", " ", str(v or "").strip().lower())
 
 
-def _is_header_row(row: tuple) -> bool:
-    """Una fila es header si contiene SKU + (Presentacion o Descripcion)."""
-    norms = {_norm_cell(c) for c in row if c is not None}
-    has_sku = "sku" in norms
-    has_other = bool(norms & {"presentacion", "descripcion", "descrpcion"})
-    return has_sku and has_other
-
-
-def _build_col_map(header: tuple) -> dict[str, int]:
-    """Mapea nombre canónico → índice de columna. La primera coincidencia gana."""
-    col_map: dict[str, int] = {}
-    for i, cell in enumerate(header):
-        norm = _norm_cell(cell)
-        if norm in HEADER_TOKENS:
-            canonical = HEADER_TOKENS[norm]
-            if canonical not in col_map:
-                col_map[canonical] = i
-    return col_map
-
-
-def _extract_factor(presentacion: Optional[str]) -> Optional[int]:
-    """De 'Caguama x77' → 77. Retorna None si no se puede extraer."""
-    if not presentacion:
-        return None
-    m = re.search(r"x\s*(\d+)", str(presentacion), flags=re.IGNORECASE)
-    if m:
-        return int(m.group(1))
+def _find_date_tab(sheet_names: list[str], fecha: date) -> Optional[str]:
+    """Busca la pestaña con nombre dd.mm.yyyy. Tolera espacios extra."""
+    target = fecha.strftime("%d.%m.%Y")
+    for name in sheet_names:
+        if name.strip() == target:
+            return name
     return None
 
 
-def _to_int(v) -> Optional[int]:
+def _find_header_cell(rows, label: str) -> Optional[tuple[int, int]]:
+    """Devuelve (row_idx, col_idx) de la primera celda que contenga exactamente `label`."""
+    target = _norm(label)
+    for r_idx, row in enumerate(rows):
+        for c_idx, val in enumerate(row):
+            if _norm(val) == target:
+                return (r_idx, c_idx)
+    return None
+
+
+def _to_number(v) -> Optional[float]:
     if v is None or v == "":
         return None
-    if isinstance(v, str):
-        s = v.strip().replace(",", "")
-        if not s:
-            return None
-        # Si quedó una fórmula sin evaluar (data_only=False fallback), descartar.
-        if s.startswith("="):
-            return None
-        try:
-            return int(float(s))
-        except ValueError:
-            return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip().replace(",", "")
+    if not s or s.startswith("="):
+        return None
     try:
-        return int(v)
-    except (ValueError, TypeError):
+        return float(s)
+    except ValueError:
         return None
 
 
-def parse_conciliacion(file_path: str | Path) -> list[dict]:
+# Etiquetas que marcan el inicio de OTRO recuadro (no el actual).
+# Sirven como "stop" del scan — los recuadros viven adyacentes en la misma
+# columna y los labels (Fin SAP, Diferencia) se repiten entre T1 y T2, así
+# que sin un terminador el scan de T1 jalaba erróneamente valores de T2.
+RECUADRO_HEADERS = {"t1", "t2", "t3"}
+
+
+def _read_recuadro(rows, header_label: str, fields: dict[str, str]) -> dict[str, Optional[float]]:
     """
-    Parsea la última pestaña del archivo de conciliación de envase.
-    Lee en read_only para soportar archivos con cientos de pestañas.
+    Encuentra la celda que contiene `header_label` (ej. "T1") y luego escanea
+    las filas debajo, leyendo etiquetas de la misma columna y valores de la
+    columna a la derecha. Se detiene al encontrar otro header de recuadro
+    (T1/T2/T3) para no contaminar con valores del recuadro vecino.
+
+    "Primera coincidencia gana" — si un label aparece dos veces, el segundo
+    no sobrescribe (defensa adicional).
+
+    Si no encuentra el header, devuelve todos los campos en None.
+    """
+    out = {key: None for key in fields}
+    pos = _find_header_cell(rows, header_label)
+    if not pos:
+        return out
+
+    r_start, c_label = pos
+    c_value = c_label + 1
+    label_to_key = {_norm(label): key for key, label in fields.items()}
+    self_norm = _norm(header_label)
+
+    for offset in range(1, 15):
+        r_idx = r_start + offset
+        if r_idx >= len(rows):
+            break
+        row = rows[r_idx]
+        if c_label >= len(row):
+            continue
+        cell_norm = _norm(row[c_label])
+        # Si encontramos OTRO header de recuadro, terminamos el scan.
+        if cell_norm in RECUADRO_HEADERS and cell_norm != self_norm:
+            break
+        if cell_norm in label_to_key:
+            key = label_to_key[cell_norm]
+            if out[key] is None:  # primera coincidencia gana
+                value = row[c_value] if c_value < len(row) else None
+                out[key] = _to_number(value)
+
+    return out
+
+
+def parse_conciliacion(file_path: str | Path, fecha: date) -> dict:
+    """
+    Lee la pestaña dd.mm.yyyy del archivo y devuelve los dos recuadros.
+
+    Lanza ValueError si la pestaña esperada no existe en el archivo.
     """
     path = Path(file_path)
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
-        sheet_name = wb.sheetnames[-1]
+        sheet_name = _find_date_tab(wb.sheetnames, fecha)
+        if not sheet_name:
+            tail = wb.sheetnames[-5:]
+            raise ValueError(
+                f"No se encontró pestaña '{fecha.strftime('%d.%m.%Y')}' en {path.name}. "
+                f"Últimas pestañas: {tail}"
+            )
         ws = wb[sheet_name]
-
-        # Materializamos las filas porque iter_rows en read_only es forward-only
-        # y necesitamos ubicar el header antes de los datos.
         rows = [tuple(r) for r in ws.iter_rows(values_only=True)]
     finally:
         wb.close()
 
-    header_idx = next((i for i, r in enumerate(rows) if _is_header_row(r)), None)
-    if header_idx is None:
-        raise ValueError(
-            f"No se encontró fila de header en pestaña '{sheet_name}' de {path.name}"
-        )
-
-    header = rows[header_idx]
-    col_map = _build_col_map(header)
-
-    results: list[dict] = []
-    for row in rows[header_idx + 1:]:
-        if not row or all(c is None or c == "" for c in row):
-            continue
-
-        # ¿Llegamos a la sección de resumen?
-        first_norms = {_norm_cell(c) for c in row[:3] if c is not None}
-        if first_norms & SUMMARY_TOKENS:
-            break
-
-        sku_idx = col_map.get("sku")
-        if sku_idx is None or sku_idx >= len(row):
-            continue
-        sku_raw = row[sku_idx]
-        if sku_raw is None or str(sku_raw).strip() == "":
-            continue
-        sku = str(sku_raw).strip()
-        # Saltar filas donde SKU no es un identificador real (encabezados de sección).
-        if not re.search(r"\d", sku):
-            continue
-
-        def cell(name: str):
-            i = col_map.get(name)
-            if i is None or i >= len(row):
-                return None
-            return row[i]
-
-        presentacion = cell("presentacion")
-        if isinstance(presentacion, str):
-            presentacion = presentacion.strip()
-
-        descripcion = cell("descripcion")
-        if isinstance(descripcion, str):
-            descripcion = descripcion.strip()
-
-        record = {
-            "sku": sku,
-            "descripcion": descripcion,
-            "presentacion": presentacion,
-            "tarimas_completas": _to_int(cell("tarimas_completas")) or 0,
-            "restos": _to_int(cell("restos")) or 0,
-            "factor": _extract_factor(presentacion),
-            "total_cajas": _to_int(cell("total_cajas")),
-        }
-
-        # Si no llegó "total" en el archivo pero tenemos factor + tarimas + restos,
-        # calcularlo: cajas = tarimas_completas * factor + restos.
-        if record["total_cajas"] is None and record["factor"] is not None:
-            record["total_cajas"] = record["tarimas_completas"] * record["factor"] + record["restos"]
-
-        results.append(record)
-
-    return results
+    return {
+        "t1": _read_recuadro(rows, "T1", T1_FIELDS),
+        "t2": _read_recuadro(rows, "T2", T2_FIELDS),
+    }
 
 
 if __name__ == "__main__":
     import json
     import sys
+    from datetime import datetime
 
-    if len(sys.argv) < 2:
-        print("Uso: python parse_conciliacion.py <archivo.xlsx>")
+    if len(sys.argv) < 3:
+        print("Uso: python parse_conciliacion.py <archivo.xlsx> <YYYY-MM-DD>")
         sys.exit(1)
-
-    out = parse_conciliacion(sys.argv[1])
-    print(f"Filas parseadas: {len(out)}")
-    print(json.dumps(out[:5], indent=2, ensure_ascii=False, default=str))
+    f = sys.argv[1]
+    fecha = datetime.strptime(sys.argv[2], "%Y-%m-%d").date()
+    out = parse_conciliacion(f, fecha)
+    print(json.dumps(out, indent=2, ensure_ascii=False, default=str))
