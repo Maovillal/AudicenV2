@@ -23,6 +23,7 @@ const CHECKLIST = [
   { id: 't2_cierre_conc',   turno: 2, momento: 'cierre', tipo: 'conciliacion_envase', label: 'Conciliación de Envase' },
   { id: 't2_cierre_rutas',  turno: 2, momento: 'cierre', tipo: 'salidas_rutas',       label: 'Atención a Rutas' },
   { id: 't2_cierre_ingreso',turno: 2, momento: 'cierre', tipo: 'ingreso_envase',      label: 'Ingreso de Envase' },
+  { id: 't2_cierre_ns',     turno: 2, momento: 'cierre', tipo: 'nivel_servicio',      label: 'Nivel de Servicio Rutas' },
   // Turno 3 - Inicio
   { id: 't3_inicio_cargas', turno: 3, momento: 'inicio', tipo: 'salidas_rutas',       label: 'Cargas a Salir' },
   { id: 't3_inicio_tarimas',turno: 3, momento: 'inicio', tipo: 'tarimas',             label: 'Reporte de Tarimas Completas' },
@@ -51,6 +52,7 @@ const DATA_TABLE_MAP = {
   mb51_2010:           { table: 'movimientos_mb51',    filters: (f)       => ({ fecha: f, almacen: '2010' }) },
   conciliacion_envase: { table: 'conciliacion_envase', filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
   ingreso_envase:      { table: 'ingreso_envase',      filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
+  nivel_servicio:      { table: 'nivel_servicio',      filters: (f)       => ({ fecha: f }) },
   tiempos_carga:       { table: 'tiempos_carga',       filters: (f)       => ({ fecha: f }) },
   tarimas:             { table: 'tarimas_completas',   filters: (f, t, m) => ({ fecha: f, turno: t, momento: m }) },
 }
@@ -103,20 +105,17 @@ export default function UploadPage({ user }) {
   }, [loadLogs])
 
   function handleItemClick(item) {
-    console.log('[upload] handleItemClick fired', { tipo: item.tipo, turno: item.turno, momento: item.momento, label: item.label })
     if (item.tipo === 'tarimas') {
       router.push(`/tarimas?fecha=${fecha}&turno=${item.turno}&momento=${item.momento}`)
       return
     }
     if (!isParserImplemented(item.tipo)) {
-      console.log('[upload] parser NOT implemented for tipo:', item.tipo)
       setError(`"${item.label}" aún no tiene parser implementado.`)
       return
     }
     setError('')
     activeItemRef.current = item
     setActiveItem(item)
-    console.log('[upload] about to trigger file picker; activeItemRef.current=', activeItemRef.current?.tipo)
     fileInputRef.current?.click()
   }
 
@@ -153,30 +152,18 @@ export default function UploadPage({ user }) {
   async function handleFileChange(e) {
     const file = e.target.files?.[0]
     const currentItem = activeItemRef.current
-    console.log('[upload] handleFileChange fired', {
-      hasFile: !!file,
-      fileName: file?.name,
-      fileSize: file?.size,
-      currentItem: currentItem ? `${currentItem.tipo} T${currentItem.turno} ${currentItem.momento}` : null,
-    })
-    if (!file || !currentItem) {
-      console.warn('[upload] EARLY RETURN: file or currentItem missing')
-      return
-    }
+    if (!file || !currentItem) return
     e.target.value = ''
     setUploading(true)
     setError('')
     try {
-      console.log('[upload] calling runParser...', { tipo: currentItem.tipo, fecha })
       const res = await runParser(currentItem.tipo, file, fecha, user, currentItem.turno, currentItem.momento)
-      console.log('[upload] runParser returned', res)
       if (res.success) {
         await loadLogs()
       } else {
         setError(res.error || 'Error al procesar el archivo.')
       }
     } catch (err) {
-      console.error('[upload] runParser THREW:', err)
       setError(err?.message || String(err))
     } finally {
       setUploading(false)
