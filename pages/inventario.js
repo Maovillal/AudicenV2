@@ -53,7 +53,7 @@ export default function InventarioPage() {
       const salidas = await fetchAllRows((from, to) =>
         supabase
           .from('salidas_rutas')
-          .select('sku,cantidad,cajas,fecha')
+          .select('sku,cantidad,fecha')
           .gte('fecha', desde)
           .lte('fecha', fecha)
           .range(from, to)
@@ -63,7 +63,7 @@ export default function InventarioPage() {
       for (const s of salidas) {
         const sku = s.sku
         if (!sku) continue
-        const qty = parseNumber(s.cantidad ?? s.cajas)
+        const qty = parseNumber(s.cantidad)
         skuTotals.set(sku, (skuTotals.get(sku) || 0) + qty)
       }
       const diasVentana = 30
