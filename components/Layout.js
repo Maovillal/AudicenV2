@@ -10,6 +10,7 @@ const navItems = [
   { href: '/rutas', label: 'Rutas', icon: 'truck' },
   { href: '/merma', label: 'Merma', icon: 'trending' },
   { href: '/auditoria', label: 'Auditoría', icon: 'shield' },
+  { href: '/reportes', label: 'Reportes', icon: 'trending' },
   { href: '/comprobacion', label: 'Comprobación', icon: 'check-formula' },
   { href: '/envase', label: 'Envase', icon: 'recycle' },
   { href: '/nivel-servicio', label: 'Nivel de Servicio', icon: 'clock' },
