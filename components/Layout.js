@@ -17,7 +17,6 @@ const navItems = [
   { href: '/timeline', label: 'Timeline Operativa', icon: 'clock' },
   { href: '/captura-tiempos', label: 'Captura Tiempos', icon: 'upload' },
   { href: '/upload', label: 'Cargar Datos', icon: 'upload' },
-  { href: '/tarimas', label: 'Tarimas Completas', icon: 'layers' },
   { href: '/historial', label: 'Historial', icon: 'calendar' },
   { href: '/configuracion', label: 'Configuración', icon: 'settings' },
 ]
