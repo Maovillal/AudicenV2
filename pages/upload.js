@@ -103,17 +103,20 @@ export default function UploadPage({ user }) {
   }, [loadLogs])
 
   function handleItemClick(item) {
+    console.log('[upload] handleItemClick fired', { tipo: item.tipo, turno: item.turno, momento: item.momento, label: item.label })
     if (item.tipo === 'tarimas') {
       router.push(`/tarimas?fecha=${fecha}&turno=${item.turno}&momento=${item.momento}`)
       return
     }
     if (!isParserImplemented(item.tipo)) {
+      console.log('[upload] parser NOT implemented for tipo:', item.tipo)
       setError(`"${item.label}" aún no tiene parser implementado.`)
       return
     }
     setError('')
     activeItemRef.current = item
     setActiveItem(item)
+    console.log('[upload] about to trigger file picker; activeItemRef.current=', activeItemRef.current?.tipo)
     fileInputRef.current?.click()
   }
 
@@ -150,18 +153,30 @@ export default function UploadPage({ user }) {
   async function handleFileChange(e) {
     const file = e.target.files?.[0]
     const currentItem = activeItemRef.current
-    if (!file || !currentItem) return
+    console.log('[upload] handleFileChange fired', {
+      hasFile: !!file,
+      fileName: file?.name,
+      fileSize: file?.size,
+      currentItem: currentItem ? `${currentItem.tipo} T${currentItem.turno} ${currentItem.momento}` : null,
+    })
+    if (!file || !currentItem) {
+      console.warn('[upload] EARLY RETURN: file or currentItem missing')
+      return
+    }
     e.target.value = ''
     setUploading(true)
     setError('')
     try {
+      console.log('[upload] calling runParser...', { tipo: currentItem.tipo, fecha })
       const res = await runParser(currentItem.tipo, file, fecha, user, currentItem.turno, currentItem.momento)
+      console.log('[upload] runParser returned', res)
       if (res.success) {
         await loadLogs()
       } else {
         setError(res.error || 'Error al procesar el archivo.')
       }
     } catch (err) {
+      console.error('[upload] runParser THREW:', err)
       setError(err?.message || String(err))
     } finally {
       setUploading(false)
