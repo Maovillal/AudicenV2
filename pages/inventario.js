@@ -121,9 +121,11 @@ export default function InventarioPage() {
       // Orden descendente por físico real (líquido) o stock libre (envase).
       liqRows.sort((a, b) => parseNumber(b.total_fisico_real) - parseNumber(a.total_fisico_real))
       envRows.sort((a, b) => parseNumber(b.stock_libre) - parseNumber(a.stock_libre))
+      console.log('[inventario] cargado', { liquido: liqRows.length, envase: envRows.length, fecha })
       setLiquido(liqRows)
       setEnvase(envRows)
-    } catch {
+    } catch (e) {
+      console.error('[inventario] error cargando data:', e)
       setLiquido([])
       setEnvase([])
     } finally {
