@@ -23,9 +23,15 @@ function sumStockTotal(rows) {
   )
 }
 
-// El dashboard mostraba la SUMA de todos los snapshots del día (T1 inicio +
-// T1 cierre + T3 cierre = 3× el stock real). Lo correcto es traer solo el
-// snapshot más reciente del día, identificado por el created_at más nuevo.
+// Total físico oficial: si el archivo Vertical de Líquido trajo una fila
+// 'TOTALES', ese valor es la verdad. Si no, fallback a sumar SKUs. Misma
+// lógica que /comprobacion.
+function totalFisicoOficial(rows) {
+  const tot = (rows || []).find((r) => String(r.sku ?? '').trim().toUpperCase() === 'TOTALES')
+  if (tot) return parseNumber(tot.total_fisico_real)
+  return (rows || []).reduce((acc, r) => acc + parseNumber(r.total_fisico_real), 0)
+}
+
 async function fetchLatestSnapshot(table, fecha) {
   const { data: latest } = await supabase
     .from(table)
@@ -47,6 +53,34 @@ async function fetchLatestSnapshot(table, fecha) {
   return { rows, turno: latest.turno, momento: latest.momento }
 }
 
+// KPI Líquido del dashboard. Lógica progresiva según qué se ha subido en el día:
+//   1. Conteo físico (T3 cierre)            → total físico oficial
+//   2. T1 inicio + MB51 2000 disponibles    → Inicio SAP + entradas MB51
+//   3. Solo T1 inicio                       → Inicio SAP
+//   4. Nada                                  → 0
+async function computeKpiLiquido(fecha) {
+  // 1. Conteo físico
+  const cf = await fetchAllRows((from, to) =>
+    supabase.from('conteo_fisico').select('sku,total_fisico_real').eq('fecha', fecha).range(from, to)
+  )
+  if (cf.length > 0) return totalFisicoOficial(cf)
+
+  // 2/3. T1 inicio (+ MB51 si existe)
+  const t1Inicio = await fetchAllRows((from, to) =>
+    supabase
+      .from('inventario_liquido')
+      .select('stock_libre,stock_bloqueado,stock_calidad')
+      .eq('fecha', fecha).eq('turno', 1).eq('momento', 'inicio')
+      .range(from, to)
+  )
+  if (t1Inicio.length === 0) return 0
+
+  const mb51 = await fetchAllRows((from, to) =>
+    supabase.from('movimientos_mb51').select('cantidad').eq('fecha', fecha).eq('almacen', '2000').range(from, to)
+  )
+  return sumStockTotal(t1Inicio) + sumField(mb51, 'cantidad')
+}
+
 export default function DashboardPage() {
   const [fecha, setFecha] = useFechaGlobal()
   const [kpiLiquido, setKpiLiquido] = useState(0)
@@ -66,28 +100,26 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      // Líquido: el KPI muestra el conteo FÍSICO del día (lo real en piso),
-      // no el snapshot de SAP. Suma de total_fisico_real en conteo_fisico
-      // que se llena al cierre del T3 (vertical de líquido).
-      const cfLiq = await fetchAllRows((from, to) =>
-        supabase
-          .from('conteo_fisico')
-          .select('total_fisico_real,diferencia')
-          .eq('fecha', fecha)
-          .range(from, to)
-      )
-      // Envase: por ahora seguimos con el último snapshot de SAP hasta
-      // confirmar de dónde sale el "físico" del envase.
+      // KPI Líquido: lógica progresiva según qué reportes se han subido (ver
+      // computeKpiLiquido para el detalle).
+      const kpiLiquidoVal = await computeKpiLiquido(fecha)
+
+      // Envase: último snapshot de SAP por ahora (pendiente confirmar si
+      // debe pasar a físico de conciliacion_envase).
       const env = await fetchLatestSnapshot('inventario_envase', fecha)
-      // Salidas a rutas: suma de eventos del día.
+
+      // Eventos acumulados del día (no snapshots).
       const sal = await fetchAllRows((from, to) =>
         supabase.from('salidas_rutas').select('cantidad').eq('fecha', fecha).range(from, to)
       )
+      const cf = await fetchAllRows((from, to) =>
+        supabase.from('conteo_fisico').select('diferencia').eq('fecha', fecha).range(from, to)
+      )
 
-      setKpiLiquido(sumField(cfLiq, 'total_fisico_real'))
+      setKpiLiquido(kpiLiquidoVal)
       setKpiEnvase(sumStockTotal(env.rows))
       setKpiCajas(sumField(sal, 'cantidad'))
-      setKpiDiff(sumAbs(cfLiq, 'diferencia'))
+      setKpiDiff(sumAbs(cf, 'diferencia'))
 
       const { data: hlData } = await supabase.rpc('get_hl_stats', { p_fecha: fecha })
       if (hlData?.[0]) {
