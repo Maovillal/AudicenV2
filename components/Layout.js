@@ -16,6 +16,7 @@ const navItems = [
   { href: '/nivel-servicio', label: 'Nivel de Servicio', icon: 'clock' },
   { href: '/timeline', label: 'Timeline Operativa', icon: 'clock' },
   { href: '/captura-tiempos', label: 'Captura Tiempos', icon: 'upload' },
+  { href: '/proyecciones', label: 'Proyecciones', icon: 'trending' },
   { href: '/upload', label: 'Cargar Datos', icon: 'upload' },
   { href: '/historial', label: 'Historial', icon: 'calendar' },
   { href: '/configuracion', label: 'Configuración', icon: 'settings' },
