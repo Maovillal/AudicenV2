@@ -79,14 +79,13 @@ export default function ProyeccionesPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      // Histórico: cajas (salidas_rutas) + minutos reales (nivel_servicio + tiempos_operacion)
-      const [salidas, ns, op] = await Promise.all([
+      // Histórico para PROYECCIÓN DE LLEGADA = solo tiempos_operacion tipo='rutas'
+      // (lo que el supervisor captura como "ruta en campo"). NO usamos
+      // nivel_servicio porque ese mide otra cosa: tiempo de liquidación
+      // post-llegada (cuánto tarda el supervisor en cerrar la ruta).
+      const [salidas, op] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('salidas_rutas').select('fecha,ruta,cantidad')
-            .gte('fecha', desde).lt('fecha', fechaObjetivo).range(from, to)
-        ),
-        fetchAllRows((from, to) =>
-          supabase.from('nivel_servicio').select('fecha,ruta,hora_inicio,hora_termino')
             .gte('fecha', desde).lt('fecha', fechaObjetivo).range(from, to)
         ),
         fetchAllRows((from, to) =>
@@ -102,35 +101,19 @@ export default function ProyeccionesPage() {
         cajasMap.set(key, (cajasMap.get(key) || 0) + parseNumber(s.cantidad))
       }
 
-      // Combinar fuentes: para cada (fecha, ruta) escoger una sola lectura.
-      // tiempos_operacion (lo que el usuario captura por pegado) gana sobre
-      // nivel_servicio (archivo legacy). Esto evita que ambas se metan al
-      // promedio y se contaminen entre sí — antes salían valores intermedios
-      // raros si la NS tenía data inconsistente con la captura.
-      const eventos = new Map()  // key=fecha|ruta → {ruta, inicio, fin}
-
-      for (const r of ns) {
-        eventos.set(`${r.fecha}|${r.ruta}`, {
-          ruta: r.ruta, inicio: r.hora_inicio, fin: r.hora_termino,
-        })
-      }
-      for (const r of op) {
-        eventos.set(`${r.fecha}|${r.entidad}`, {  // sobreescribe a NS
-          ruta: r.entidad, inicio: r.inicio, fin: r.fin,
-        })
-      }
-
+      // Construir minutos en campo + horas de salida desde la captura.
       const minutosMap = new Map()
       const horasInicio = new Map()  // ruta → [hora_inicio_min, ...]
-      for (const [key, ev] of eventos) {
-        const mIni = hhmmToMin(ev.inicio)
-        const mFin = hhmmToMin(ev.fin)
+      for (const r of op) {
+        const mIni = hhmmToMin(r.inicio)
+        const mFin = hhmmToMin(r.fin)
         if (mIni == null || mFin == null) continue
         let dur = mFin - mIni
         if (dur < 0) dur += 24 * 60
+        const key = `${r.fecha}|${r.entidad}`
         minutosMap.set(key, dur)
-        if (!horasInicio.has(ev.ruta)) horasInicio.set(ev.ruta, [])
-        horasInicio.get(ev.ruta).push(mIni)
+        if (!horasInicio.has(r.entidad)) horasInicio.set(r.entidad, [])
+        horasInicio.get(r.entidad).push(mIni)
       }
 
       // Combinar: pares (fecha, ruta) que existen en AMBOS
@@ -225,8 +208,9 @@ export default function ProyeccionesPage() {
             <div>
               <h1 className={`${bebasNeue.className} text-4xl text-verde-botella`}>PROYECCIONES DE LLEGADA</h1>
               <p className="text-sm text-gris-texto mt-1">
-                Estima la hora de retorno por ruta usando histórico de los últimos 60 días.
-                Se recalibra solo conforme capturas más datos.
+                Estima la hora en que cada ruta retorna a la base, usando solo los
+                tiempos de ruta en campo que has capturado (Captura Tiempos →
+                «Rutas»). Se recalibra solo conforme capturas más días.
               </p>
             </div>
             <label className="text-sm font-semibold">
