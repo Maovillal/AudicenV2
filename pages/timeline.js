@@ -59,12 +59,13 @@ export default function TimelinePage() {
   const [tiemposCarga, setTiemposCarga] = useState([])
   const [nivelServicio, setNivelServicio] = useState([])
   const [tiemposOp, setTiemposOp] = useState([])  // captura por pegado
+  const [proyecciones, setProyecciones] = useState([])  // hora_termino predicha
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [tc, ns, op] = await Promise.all([
+      const [tc, ns, op, pr] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('tiempos_carga').select('*').eq('fecha', fecha).range(from, to)
         ),
@@ -74,15 +75,20 @@ export default function TimelinePage() {
         fetchAllRows((from, to) =>
           supabase.from('tiempos_operacion').select('*').eq('fecha', fecha).range(from, to)
         ),
+        fetchAllRows((from, to) =>
+          supabase.from('proyecciones_rutas').select('*').eq('fecha', fecha).range(from, to)
+        ),
       ])
       setTiemposCarga(tc)
       setNivelServicio(ns)
       setTiemposOp(op)
+      setProyecciones(pr)
     } catch (e) {
       console.error('[timeline] error:', e)
       setTiemposCarga([])
       setNivelServicio([])
       setTiemposOp([])
+      setProyecciones([])
     } finally {
       setLoading(false)
     }
@@ -139,12 +145,21 @@ export default function TimelinePage() {
       }
     }
 
-    return [...byRuta.values()].sort((a, b) => a.ruta.localeCompare(b.ruta))
-  }, [tiemposCarga, nivelServicio, tiemposOp])
+    // Agregar hora_termino proyectada por ruta (si está guardada).
+    for (const p of proyecciones) {
+      const key = String(p.ruta || '').trim()
+      if (!key) continue
+      const acc = get(key)
+      const proyectado = hhmmToMin(p.hora_termino_proyectada)
+      if (proyectado != null) acc.proyeccion = proyectado
+    }
 
-  // Para el resumen
+    return [...byRuta.values()].sort((a, b) => a.ruta.localeCompare(b.ruta))
+  }, [tiemposCarga, nivelServicio, tiemposOp, proyecciones])
+
+  // Para el resumen — incluye también rutas que solo tienen proyección guardada
   const rutasConData = rutasData.filter((r) =>
-    FASES.some((f) => r[f.id])
+    FASES.some((f) => r[f.id]) || r.proyeccion != null
   )
 
   return (
@@ -179,7 +194,17 @@ export default function TimelinePage() {
                 <span className="text-gris-texto text-xs">— {f.descripcion}</span>
               </div>
             ))}
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 border-l-2 border-dashed border-rojo" />
+              <span className="font-semibold">Llegada proyectada</span>
+              <span className="text-gris-texto text-xs">— guardada desde /proyecciones</span>
+            </div>
           </div>
+          {proyecciones.length > 0 && (
+            <div className="text-xs text-gris-texto">
+              {proyecciones.length} ruta{proyecciones.length !== 1 ? 's' : ''} con proyección guardada para esta fecha.
+            </div>
+          )}
 
           {loading ? (
             <p className="text-gris-texto">Cargando…</p>
@@ -222,6 +247,18 @@ export default function TimelinePage() {
                           style={{ left: `${(h / 24) * 100}%` }}
                         />
                       ))}
+                      {/* Línea vertical punteada en la hora_termino proyectada */}
+                      {r.proyeccion != null && (
+                        <div
+                          className="absolute top-0 bottom-0 border-l-2 border-dashed border-rojo z-10"
+                          style={{ left: `${(r.proyeccion / (24 * 60)) * 100}%` }}
+                          title={`Llegada proyectada: ${minToHHMM(r.proyeccion)}`}
+                        >
+                          <div className="absolute -top-1 -translate-x-1/2 text-[9px] font-bold text-rojo bg-white px-1 rounded whitespace-nowrap">
+                            ▼ {minToHHMM(r.proyeccion)}
+                          </div>
+                        </div>
+                      )}
                       {/* Barras de cada fase */}
                       {FASES.map((f, idx) => {
                         const fase = r[f.id]

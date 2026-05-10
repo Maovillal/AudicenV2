@@ -69,6 +69,9 @@ export default function ProyeccionesPage() {
   const [horaInicioPorRuta, setHoraInicioPorRuta] = useState(new Map())
   const [planeadasInput, setPlaneadasInput] = useState({})  // { ruta: cajas } manual
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState(null)
+  const [saveError, setSaveError] = useState('')
 
   // Ventana histórica = últimos 60 días antes de fechaObjetivo
   const desde = useMemo(
@@ -191,7 +194,51 @@ export default function ProyeccionesPage() {
 
   const setPlaneadas = (ruta, value) => {
     setPlaneadasInput((p) => ({ ...p, [ruta]: value }))
+    setSavedAt(null)
   }
+
+  // Guardar las proyecciones actuales en Supabase para que después puedan
+  // compararse contra los tiempos reales y verse en /timeline como línea
+  // vertical punteada.
+  const guardarProyecciones = useCallback(async () => {
+    setSaving(true)
+    setSaveError('')
+    try {
+      const records = filas
+        .filter((f) => f.cajas > 0 && f.minutos != null && f.horaTermino != null)
+        .map((f) => ({
+          fecha: fechaObjetivo,
+          ruta: f.ruta,
+          cajas_planeadas: f.cajas,
+          hora_inicio_proyectada: minToHHMM(f.horaInicio) + ':00',
+          minutos_proyectados: Math.round(f.minutos),
+          hora_termino_proyectada: minToHHMM(f.horaTermino) + ':00',
+          n_datos_usados: f.n,
+          confianza: ({
+            'Alta': 'alta', 'Media': 'media', 'Baja': 'baja', 'Estimado global': 'estimado_global',
+          })[f.conf.label] || null,
+        }))
+
+      // delete + insert por fecha (idempotente)
+      const { error: delErr } = await supabase
+        .from('proyecciones_rutas')
+        .delete()
+        .eq('fecha', fechaObjetivo)
+      if (delErr) throw delErr
+
+      if (records.length > 0) {
+        const { error: insErr } = await supabase
+          .from('proyecciones_rutas')
+          .insert(records)
+        if (insErr) throw insErr
+      }
+      setSavedAt(new Date())
+    } catch (e) {
+      setSaveError(e.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }, [filas, fechaObjetivo])
 
   const agregarRuta = () => {
     const nombre = prompt('Nombre de la ruta nueva (ej. RK1621):')
@@ -235,18 +282,42 @@ export default function ProyeccionesPage() {
             />
           </div>
 
-          {/* Acción: agregar ruta nueva */}
-          <div className="flex justify-between items-center">
-            <p className="text-sm text-gris-texto">
+          {/* Acción: agregar ruta nueva + guardar */}
+          <div className="flex flex-wrap justify-between items-center gap-3">
+            <p className="text-sm text-gris-texto flex-1 min-w-[240px]">
               Llena las cajas planeadas para cada ruta. La proyección se actualiza al instante.
+              Cuando estés conforme, guárdala para verla como línea vertical en /timeline.
             </p>
-            <button
-              onClick={agregarRuta}
-              className="rounded-lg border border-verde-botella text-verde-botella px-3 py-1.5 text-xs font-bold hover:bg-verde-botella hover:text-blanco"
-            >
-              + Agregar ruta
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={agregarRuta}
+                className="rounded-lg border border-verde-botella text-verde-botella px-3 py-2 text-xs font-bold hover:bg-verde-botella hover:text-blanco"
+              >
+                + Agregar ruta
+              </button>
+              <button
+                onClick={guardarProyecciones}
+                disabled={saving || filas.every((f) => f.minutos == null)}
+                className={`rounded-lg px-4 py-2 text-xs font-bold ${
+                  saving || filas.every((f) => f.minutos == null)
+                    ? 'bg-gris-claro text-gris-texto cursor-not-allowed'
+                    : 'bg-verde-botella text-blanco hover:bg-verde-fresco'
+                }`}
+              >
+                {saving ? 'Guardando…' : `Guardar proyecciones (${fechaObjetivo})`}
+              </button>
+            </div>
           </div>
+          {savedAt && (
+            <div className="bg-verde-fresco/15 border border-verde-fresco text-verde-botella rounded p-3 text-sm font-semibold">
+              ✓ Proyecciones guardadas a las {format(savedAt, 'HH:mm:ss')}. Ve a /timeline el {fechaObjetivo} para ver las líneas verticales por ruta.
+            </div>
+          )}
+          {saveError && (
+            <div className="bg-rojo/10 border border-rojo text-rojo rounded p-3 text-sm">
+              Error guardando: {saveError}
+            </div>
+          )}
 
           {loading ? (
             <p className="text-gris-texto">Cargando histórico…</p>
