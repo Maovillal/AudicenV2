@@ -102,24 +102,36 @@ export default function ProyeccionesPage() {
         cajasMap.set(key, (cajasMap.get(key) || 0) + parseNumber(s.cantidad))
       }
 
-      // Index minutos: prefiere tiempos_operacion (captura) sobre nivel_servicio
-      const minutosMap = new Map()
-      const horasInicio = new Map()  // ruta → [hora_inicio_min, ...]
+      // Combinar fuentes: para cada (fecha, ruta) escoger una sola lectura.
+      // tiempos_operacion (lo que el usuario captura por pegado) gana sobre
+      // nivel_servicio (archivo legacy). Esto evita que ambas se metan al
+      // promedio y se contaminen entre sí — antes salían valores intermedios
+      // raros si la NS tenía data inconsistente con la captura.
+      const eventos = new Map()  // key=fecha|ruta → {ruta, inicio, fin}
 
-      function addMinutos(fecha, ruta, inicio, fin) {
-        const mIni = hhmmToMin(inicio)
-        const mFin = hhmmToMin(fin)
-        if (mIni == null || mFin == null) return
-        let dur = mFin - mIni
-        if (dur < 0) dur += 24 * 60
-        const key = `${fecha}|${ruta}`
-        minutosMap.set(key, dur)
-        if (!horasInicio.has(ruta)) horasInicio.set(ruta, [])
-        horasInicio.get(ruta).push(mIni)
+      for (const r of ns) {
+        eventos.set(`${r.fecha}|${r.ruta}`, {
+          ruta: r.ruta, inicio: r.hora_inicio, fin: r.hora_termino,
+        })
+      }
+      for (const r of op) {
+        eventos.set(`${r.fecha}|${r.entidad}`, {  // sobreescribe a NS
+          ruta: r.entidad, inicio: r.inicio, fin: r.fin,
+        })
       }
 
-      for (const r of ns) addMinutos(r.fecha, r.ruta, r.hora_inicio, r.hora_termino)
-      for (const r of op) addMinutos(r.fecha, r.entidad, r.inicio, r.fin)  // sobreescribe
+      const minutosMap = new Map()
+      const horasInicio = new Map()  // ruta → [hora_inicio_min, ...]
+      for (const [key, ev] of eventos) {
+        const mIni = hhmmToMin(ev.inicio)
+        const mFin = hhmmToMin(ev.fin)
+        if (mIni == null || mFin == null) continue
+        let dur = mFin - mIni
+        if (dur < 0) dur += 24 * 60
+        minutosMap.set(key, dur)
+        if (!horasInicio.has(ev.ruta)) horasInicio.set(ev.ruta, [])
+        horasInicio.get(ev.ruta).push(mIni)
+      }
 
       // Combinar: pares (fecha, ruta) que existen en AMBOS
       const hist = []
